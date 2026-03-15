@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#020617">
+    <title>RADAR_OS // TACTICAL</title>
+    
+    <link rel="manifest" href='data:application/manifest+json,{"name":"RadarOS","short_name":"Radar","start_url":".","display":"standalone","background_color":"#020617","theme_color":"#020617","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/2554/2554930.png","sizes":"512x512","type":"image/png"}]}'>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        body { background: #020617; color: #94a3b8; font-family: 'Courier New', Courier, monospace; }
+        #map { height: 50vh; width: 100%; filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
+        .radar-line { stroke: #22c55e; stroke-dasharray: 5, 5; animation: dash 1s linear infinite; }
+        @keyframes dash { to { stroke-dashoffset: -10; } }
+        .hud-overlay { pointer-events: none; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <div class="p-4 border-b border-green-500/20 bg-black/40 flex justify-between items-center">
+        <div>
+            <h1 class="text-green-500 font-bold tracking-widest text-sm">SYSTEM: RADAR_OS</h1>
+            <p id="geo-status" class="text-[10px] text-green-800">SCANNING GPS...</p>
+        </div>
+        <button id="ghost-toggle" onclick="toggleGhost()" class="px-3 py-1 border border-green-500 text-green-500 text-[10px] rounded hover:bg-green-500 hover:text-black transition">GHOST: OFF</button>
+    </div>
+
+    <div id="map" class="relative">
+        <div class="absolute inset-0 z-[1000] hud-overlay border-[20px] border-black/20 pointer-events-none"></div>
+    </div>
+
+    <div class="flex-1 p-4 flex flex-col gap-4 bg-black">
+        <div class="flex gap-2">
+            <button onclick="manualScan()" class="flex-1 bg-green-600 text-black font-bold py-3 rounded active:scale-95 transition">MANUAL SCAN</button>
+            <button onclick="clearTether()" class="px-4 bg-zinc-800 text-white rounded font-bold">CLR</button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 text-[10px]">
+            <div class="bg-zinc-900 p-2 border border-white/5">
+                <p class="text-zinc-500 uppercase">Nearest Signal</p>
+                <p id="near-dist" class="text-white text-sm font-bold">---</p>
+            </div>
+            <div class="bg-zinc-900 p-2 border border-white/5">
+                <p class="text-zinc-500 uppercase">Infrastructure</p>
+                <p id="tower-info" class="text-white text-sm font-bold">SCAN REQ.</p>
+            </div>
+        </div>
+
+        <div id="log" class="flex-1 bg-black border border-green-500/10 p-2 overflow-y-auto text-[9px] font-mono text-green-700">
+            > SYSTEM READY...
+        </div>
+    </div>
+
+    <script>
+        let map, userMarker, supabase, channel;
+        let isGhost = false;
+        let otherNodes = {};
+        let tether = null;
+
+        // 1. SERVICE WORKER FOR OFFLINE USE
+        if ('serviceWorker' in navigator) {
+            const swCode = `
+                const CACHE_NAME = 'radar-v1';
+                self.addEventListener('install', e => e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(['/']))));
+                self.addEventListener('fetch', e => e.respondWith(caches.match(e.request).then(r => r || fetch(e.request))));
+            `;
+            const blob = new Blob([swCode], {type: 'text/javascript'});
+            navigator.serviceWorker.register(URL.createObjectURL(blob));
+        }
+
+        // 2. CORE LOGIC
+        async function init() {
+            const url = localStorage.getItem('sb_url') || prompt("SUPABASE URL:");
+            const key = localStorage.getItem('sb_key') || prompt("SUPABASE KEY:");
+            if(!url || !key) return;
+            localStorage.setItem('sb_url', url); localStorage.setItem('sb_key', key);
+
+            supabase = window.supabase.createClient(url, key);
+            setupMap();
+            connectSupabase();
+            startGPS();
+        }
+
+        function setupMap() {
+            map = L.map('map', { zoomControl: false }).setView([0,0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        }
+
+        function log(msg) {
+            const l = document.getElementById('log');
+            l.innerHTML += `<div>> ${msg}</div>`;
+            l.scrollTop = l.scrollHeight;
+        }
+
+        async function manualScan() {
+            log("INITIATING SECTOR SCAN...");
+            const pos = userMarker.getLatLng();
+            
+            // Search for Network/Utility Towers via Overpass API
+            const query = `[out:json];node["man_made"="tower"](around:2000,${pos.lat},${pos.lng});out 5;`;
+            try {
+                const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+                const data = await res.json();
+                data.elements.forEach(node => {
+                    L.circleMarker([node.lat, node.lon], {color: '#22c55e', radius: 4}).addTo(map).bindPopup("INFRA_TOWER");
+                });
+                document.getElementById('tower-info').innerText = `${data.elements.length} TOWERS`;
+                log(`SCAN COMPLETE: ${data.elements.length} INFRASTRUCTURE NODES FOUND.`);
+            } catch(e) { log("SCAN ERROR: NETWORK TIMEOUT"); }
+        }
+
+        function startGPS() {
+            navigator.geolocation.watchPosition(p => {
+                const { latitude, longitude } = p.coords;
+                if(!userMarker) {
+                    userMarker = L.circleMarker([latitude, longitude], {color: '#3b82f6', radius: 7}).addTo(map);
+                    map.setView([latitude, longitude], 15);
+                } else {
+                    userMarker.setLatLng([latitude, longitude]);
+                }
+                document.getElementById('geo-status').innerText = `LAT: ${latitude.toFixed(4)} LON: ${longitude.toFixed(4)}`;
+                
+                if(!isGhost) channel.track({lat: latitude, lng: longitude, id: 'DEVICE_ALPHA'});
+            }, null, {enableHighAccuracy: true});
+        }
+
+        function connectSupabase() {
+            channel = supabase.channel('radar_sector');
+            channel.on('presence', { event: 'sync' }, () => {
+                const state = channel.presenceState();
+                updateSignals(state);
+            }).subscribe();
+        }
+
+        function updateSignals(state) {
+            Object.values(state).flat().forEach(node => {
+                if(node.id === 'DEVICE_ALPHA') return;
+                
+                if(!otherNodes[node.id]) {
+                    otherNodes[node.id] = L.circleMarker([node.lat, node.lng], {color: '#ef4444', radius: 5}).addTo(map);
+                    otherNodes[node.id].on('click', () => drawTether(node.lat, node.lng));
+                    log("NEW SIGNAL DETECTED: UNKNOWN_NODE");
+                } else {
+                    otherNodes[node.id].setLatLng([node.lat, node.lng]);
+                }
+            });
+        }
+
+        function drawTether(targetLat, targetLng) {
+            if(tether) map.removeLayer(tether);
+            const userPos = userMarker.getLatLng();
+            tether = L.polyline([[userPos.lat, userPos.lng], [targetLat, targetLng]], {color: '#22c55e', weight: 2, dashArray: '5, 10', className: 'radar-line'}).addTo(map);
+            
+            const dist = (map.distance(userPos, [targetLat, targetLng]) / 1000).toFixed(2);
+            document.getElementById('near-dist').innerText = `${dist} KM`;
+            log(`TETHER ESTABLISHED: DESTINATION ${dist}KM`);
+        }
+
+        function clearTether() { if(tether) map.removeLayer(tether); tether = null; }
+
+        function toggleGhost() {
+            isGhost = !isGhost;
+            document.getElementById('ghost-toggle').innerText = isGhost ? "GHOST: ON" : "GHOST: OFF";
+            log(isGhost ? "STEALTH MODE ACTIVATED" : "BEACON BROADCAST RESUMED");
+        }
+
+        init();
+    </script>
+</body>
+</html>
+
