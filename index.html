@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#020617">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>RADAR_OS // TACTICAL</title>
     
     <link rel="manifest" href='data:application/manifest+json,{"name":"RadarOS","short_name":"Radar","start_url":".","display":"standalone","background_color":"#020617","theme_color":"#020617","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/2554/2554930.png","sizes":"512x512","type":"image/png"}]}'>
@@ -14,164 +15,185 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
+        :root { --glitch-green: #22c55e; }
         body { background: #020617; color: #94a3b8; font-family: 'Courier New', Courier, monospace; }
         #map { height: 50vh; width: 100%; filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
-        .radar-line { stroke: #22c55e; stroke-dasharray: 5, 5; animation: dash 1s linear infinite; }
-        @keyframes dash { to { stroke-dashoffset: -10; } }
-        .hud-overlay { pointer-events: none; }
+        .radar-line { stroke: var(--glitch-green); stroke-dasharray: 8, 8; animation: dash 1s linear infinite; }
+        @keyframes dash { to { stroke-dashoffset: -16; } }
+        .radar-node { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        #log::-webkit-scrollbar { width: 4px; }
+        #log::-webkit-scrollbar-thumb { background: #166534; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
 
-    <div class="p-4 border-b border-green-500/20 bg-black/40 flex justify-between items-center">
+    <div class="p-4 border-b border-green-500/20 bg-black/60 flex justify-between items-center z-50">
         <div>
-            <h1 class="text-green-500 font-bold tracking-widest text-sm">SYSTEM: RADAR_OS</h1>
-            <p id="geo-status" class="text-[10px] text-green-800">SCANNING GPS...</p>
+            <h1 class="text-green-500 font-bold tracking-[0.2em] text-xs">RADAR_OS.v15</h1>
+            <p id="geo-status" class="text-[10px] text-green-900 font-bold uppercase">GPS: LINKING...</p>
         </div>
-        <button id="ghost-toggle" onclick="toggleGhost()" class="px-3 py-1 border border-green-500 text-green-500 text-[10px] rounded hover:bg-green-500 hover:text-black transition">GHOST: OFF</button>
-    </div>
-
-    <div id="map" class="relative">
-        <div class="absolute inset-0 z-[1000] hud-overlay border-[20px] border-black/20 pointer-events-none"></div>
-    </div>
-
-    <div class="flex-1 p-4 flex flex-col gap-4 bg-black">
         <div class="flex gap-2">
-            <button onclick="manualScan()" class="flex-1 bg-green-600 text-black font-bold py-3 rounded active:scale-95 transition">MANUAL SCAN</button>
-            <button onclick="clearTether()" class="px-4 bg-zinc-800 text-white rounded font-bold">CLR</button>
+            <button onclick="toggleGhost()" id="ghost-btn" class="px-2 py-1 border border-green-900 text-[9px] rounded">GHOST: OFF</button>
+            <button onclick="purgeData()" class="px-2 py-1 border border-red-900 text-red-900 text-[9px] rounded">PURGE</button>
+        </div>
+    </div>
+
+    <div id="map" class="relative border-b border-green-500/10">
+        <div class="absolute inset-0 z-[1000] pointer-events-none border-[1px] border-green-500/10 flex items-center justify-center">
+            <div class="w-20 h-20 border border-green-500/5 rounded-full"></div>
+            <div class="absolute w-full h-[1px] bg-green-500/5"></div>
+            <div class="absolute h-full w-[1px] bg-green-500/5"></div>
+        </div>
+    </div>
+
+    <div class="flex-1 p-4 bg-black flex flex-col gap-3">
+        <div class="flex gap-2">
+            <button onclick="manualScan()" id="scan-btn" class="flex-[2] bg-green-600 text-black font-black py-4 rounded active:bg-green-400 transition-all uppercase tracking-tighter">Initiate Scan</button>
+            <button onclick="mockTest()" class="flex-1 bg-zinc-900 text-zinc-500 text-[9px] rounded uppercase font-bold">Mock Test</button>
         </div>
 
         <div class="grid grid-cols-2 gap-2 text-[10px]">
-            <div class="bg-zinc-900 p-2 border border-white/5">
-                <p class="text-zinc-500 uppercase">Nearest Signal</p>
-                <p id="near-dist" class="text-white text-sm font-bold">---</p>
+            <div class="bg-zinc-950 p-3 border border-green-950">
+                <p class="text-zinc-600 uppercase">Vector Dist</p>
+                <p id="near-dist" class="text-green-500 text-lg font-bold font-mono">---</p>
             </div>
-            <div class="bg-zinc-900 p-2 border border-white/5">
-                <p class="text-zinc-500 uppercase">Infrastructure</p>
-                <p id="tower-info" class="text-white text-sm font-bold">SCAN REQ.</p>
+            <div class="bg-zinc-950 p-3 border border-green-950">
+                <p class="text-zinc-600 uppercase">Nodes found</p>
+                <p id="tower-info" class="text-green-500 text-lg font-bold font-mono">0</p>
             </div>
         </div>
 
-        <div id="log" class="flex-1 bg-black border border-green-500/10 p-2 overflow-y-auto text-[9px] font-mono text-green-700">
-            > SYSTEM READY...
+        <div id="log" class="flex-1 bg-zinc-950 border border-green-900/20 p-3 overflow-y-auto text-[9px] font-mono text-green-700 leading-relaxed shadow-inner">
+            <div>> TERMINAL INITIALIZED...</div>
+            <div>> WAITING FOR CREDENTIALS...</div>
         </div>
     </div>
 
     <script>
         let map, userMarker, supabase, channel;
-        let isGhost = false;
-        let otherNodes = {};
-        let tether = null;
+        let isGhost = false, tether = null, markers = {};
 
-        // 1. SERVICE WORKER FOR OFFLINE USE
+        // --- SERVICE WORKER (OFFLINE SUPPORT) ---
         if ('serviceWorker' in navigator) {
-            const swCode = `
-                const CACHE_NAME = 'radar-v1';
-                self.addEventListener('install', e => e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(['/']))));
-                self.addEventListener('fetch', e => e.respondWith(caches.match(e.request).then(r => r || fetch(e.request))));
-            `;
-            const blob = new Blob([swCode], {type: 'text/javascript'});
+            const sw = `const C='r-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.addAll(['/']))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
+            const blob = new Blob([sw], {type:'text/javascript'});
             navigator.serviceWorker.register(URL.createObjectURL(blob));
         }
 
-        // 2. CORE LOGIC
+        // --- INITIALIZATION ---
         async function init() {
             const url = localStorage.getItem('sb_url') || prompt("SUPABASE URL:");
-            const key = localStorage.getItem('sb_key') || prompt("SUPABASE KEY:");
-            if(!url || !key) return;
+            const key = localStorage.getItem('sb_key') || prompt("SUPABASE ANON KEY:");
+            if(!url || !key) return log("CRITICAL: NO CREDENTIALS");
+            
             localStorage.setItem('sb_url', url); localStorage.setItem('sb_key', key);
-
             supabase = window.supabase.createClient(url, key);
+            
             setupMap();
-            connectSupabase();
+            connectSignals();
             startGPS();
         }
 
         function setupMap() {
-            map = L.map('map', { zoomControl: false }).setView([0,0], 2);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0,0], 2);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
         }
 
-        function log(msg) {
+        function log(m) {
             const l = document.getElementById('log');
-            l.innerHTML += `<div>> ${msg}</div>`;
+            l.innerHTML += `<div>> ${m}</div>`;
             l.scrollTop = l.scrollHeight;
         }
 
+        // --- CORE NAVIGATION & SCANNING ---
         async function manualScan() {
-            log("INITIATING SECTOR SCAN...");
-            const pos = userMarker.getLatLng();
+            if(!userMarker) return log("ERR: NO GPS LOCK");
+            const btn = document.getElementById('scan-btn');
+            btn.disabled = true; btn.innerText = "SCANNING...";
+            log("POLLING SECTOR NODES...");
+
+            const p = userMarker.getLatLng();
+            const query = `[out:json][timeout:15];(node["man_made"~"tower|mast|communications"](around:5000,${p.lat},${p.lng}););out body;`;
             
-            // Search for Network/Utility Towers via Overpass API
-            const query = `[out:json];node["man_made"="tower"](around:2000,${pos.lat},${pos.lng});out 5;`;
             try {
                 const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
                 const data = await res.json();
+                
                 data.elements.forEach(node => {
-                    L.circleMarker([node.lat, node.lon], {color: '#22c55e', radius: 4}).addTo(map).bindPopup("INFRA_TOWER");
+                    if(markers[node.id]) return;
+                    const icon = L.divIcon({ className: 'radar-node', html: `<div class="w-3 h-3 bg-green-500 rounded-full border border-white shadow-[0_0_8px_green]"></div>`, iconSize:[12,12] });
+                    const m = L.marker([node.lat, node.lon], {icon}).addTo(map);
+                    m.on('click', () => drawTether(node.lat, node.lon));
+                    markers[node.id] = m;
                 });
-                document.getElementById('tower-info').innerText = `${data.elements.length} TOWERS`;
-                log(`SCAN COMPLETE: ${data.elements.length} INFRASTRUCTURE NODES FOUND.`);
-            } catch(e) { log("SCAN ERROR: NETWORK TIMEOUT"); }
+
+                document.getElementById('tower-info').innerText = data.elements.length;
+                log(`SCAN SUCCESS: ${data.elements.length} NODES IDENTIFIED`);
+                if(navigator.vibrate) navigator.vibrate([100,50,100]);
+            } catch(e) { log("ERR: NETWORK INTERFERENCE"); }
+            
+            btn.disabled = false; btn.innerText = "INITIATE SCAN";
+        }
+
+        function drawTether(tLat, tLng) {
+            if(tether) map.removeLayer(tether);
+            const u = userMarker.getLatLng();
+            tether = L.polyline([[u.lat, u.lng], [tLat, tLng]], {className: 'radar-line', weight: 2}).addTo(map);
+            const d = (map.distance(u, [tLat, tLng]) / 1000).toFixed(2);
+            document.getElementById('near-dist').innerText = d + " KM";
+            log(`VECTOR SET: ${d}KM TO NODE`);
         }
 
         function startGPS() {
             navigator.geolocation.watchPosition(p => {
-                const { latitude, longitude } = p.coords;
+                const { latitude: lat, longitude: lng } = p.coords;
                 if(!userMarker) {
-                    userMarker = L.circleMarker([latitude, longitude], {color: '#3b82f6', radius: 7}).addTo(map);
-                    map.setView([latitude, longitude], 15);
+                    userMarker = L.circleMarker([lat, lng], {color: '#22c55e', fillOpacity:1, radius: 6}).addTo(map);
+                    map.setView([lat, lng], 15);
+                    log("GPS LOCK ESTABLISHED");
                 } else {
-                    userMarker.setLatLng([latitude, longitude]);
+                    userMarker.setLatLng([lat, lng]);
                 }
-                document.getElementById('geo-status').innerText = `LAT: ${latitude.toFixed(4)} LON: ${longitude.toFixed(4)}`;
-                
-                if(!isGhost) channel.track({lat: latitude, lng: longitude, id: 'DEVICE_ALPHA'});
-            }, null, {enableHighAccuracy: true});
+                document.getElementById('geo-status').innerText = `LAT:${lat.toFixed(3)} LON:${lng.toFixed(3)}`;
+                if(!isGhost) channel.track({lat, lng, id: 'ALPHA_NODE'});
+                if(tether) drawTether(tether.getLatLngs()[1].lat, tether.getLatLngs()[1].lng);
+            }, e => log("ERR: GPS DENIED"), {enableHighAccuracy:true});
         }
 
-        function connectSupabase() {
-            channel = supabase.channel('radar_sector');
-            channel.on('presence', { event: 'sync' }, () => {
+        function connectSignals() {
+            channel = supabase.channel('radar_net');
+            channel.on('presence', {event:'sync'}, () => {
                 const state = channel.presenceState();
-                updateSignals(state);
+                Object.values(state).flat().forEach(s => {
+                    if(s.id === 'ALPHA_NODE' || markers[s.id]) return;
+                    const icon = L.divIcon({ className: 'radar-node', html: `<div class="w-3 h-3 bg-red-600 rounded-full shadow-[0_0_8px_red]"></div>` });
+                    markers[s.id] = L.marker([s.lat, s.lng], {icon}).addTo(map).on('click', () => drawTether(s.lat, s.lng));
+                    log("FOREIGN SIGNAL DETECTED");
+                });
             }).subscribe();
         }
 
-        function updateSignals(state) {
-            Object.values(state).flat().forEach(node => {
-                if(node.id === 'DEVICE_ALPHA') return;
-                
-                if(!otherNodes[node.id]) {
-                    otherNodes[node.id] = L.circleMarker([node.lat, node.lng], {color: '#ef4444', radius: 5}).addTo(map);
-                    otherNodes[node.id].on('click', () => drawTether(node.lat, node.lng));
-                    log("NEW SIGNAL DETECTED: UNKNOWN_NODE");
-                } else {
-                    otherNodes[node.id].setLatLng([node.lat, node.lng]);
-                }
-            });
+        // --- UTILS ---
+        function mockTest() {
+            log("SIMULATING TEST NODE...");
+            const p = userMarker ? userMarker.getLatLng() : {lat: 6.33, lng: 5.62};
+            const mockLat = p.lat + 0.005, mockLng = p.lng + 0.005;
+            drawTether(mockLat, mockLng);
         }
-
-        function drawTether(targetLat, targetLng) {
-            if(tether) map.removeLayer(tether);
-            const userPos = userMarker.getLatLng();
-            tether = L.polyline([[userPos.lat, userPos.lng], [targetLat, targetLng]], {color: '#22c55e', weight: 2, dashArray: '5, 10', className: 'radar-line'}).addTo(map);
-            
-            const dist = (map.distance(userPos, [targetLat, targetLng]) / 1000).toFixed(2);
-            document.getElementById('near-dist').innerText = `${dist} KM`;
-            log(`TETHER ESTABLISHED: DESTINATION ${dist}KM`);
-        }
-
-        function clearTether() { if(tether) map.removeLayer(tether); tether = null; }
 
         function toggleGhost() {
             isGhost = !isGhost;
-            document.getElementById('ghost-toggle').innerText = isGhost ? "GHOST: ON" : "GHOST: OFF";
-            log(isGhost ? "STEALTH MODE ACTIVATED" : "BEACON BROADCAST RESUMED");
+            document.getElementById('ghost-btn').innerText = `GHOST: ${isGhost ? 'ON':'OFF'}`;
+            log(isGhost ? "STEALTH ACTIVATED" : "BROADCAST RESUMED");
+        }
+
+        function purgeData() {
+            localStorage.clear();
+            location.reload();
         }
 
         init();
     </script>
 </body>
 </html>
-
