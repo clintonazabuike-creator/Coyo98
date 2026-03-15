@@ -17,7 +17,7 @@
     <style>
         :root { --glitch-green: #22c55e; }
         body { background: #020617; color: #94a3b8; font-family: 'Courier New', Courier, monospace; }
-        #map { height: 50vh; width: 100%; filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
+        #map { height: 45vh; width: 100%; filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
         .radar-line { stroke: var(--glitch-green); stroke-dasharray: 8, 8; animation: dash 1s linear infinite; }
         @keyframes dash { to { stroke-dashoffset: -16; } }
         .radar-node { animation: pulse 2s infinite; }
@@ -26,7 +26,7 @@
         #log::-webkit-scrollbar-thumb { background: #166534; }
     </style>
 </head>
-<body class="flex flex-col h-screen overflow-hidden">
+<body class="flex flex-col h-screen overflow-hidden" onclick="resetGhostTimer()" ontouchstart="resetGhostTimer()">
 
     <div class="p-4 border-b border-green-500/20 bg-black/60 flex justify-between items-center z-50">
         <div>
@@ -34,8 +34,8 @@
             <p id="geo-status" class="text-[10px] text-green-900 font-bold uppercase">GPS: LINKING...</p>
         </div>
         <div class="flex gap-2">
-            <button onclick="toggleGhost()" id="ghost-btn" class="px-2 py-1 border border-green-900 text-[9px] rounded">GHOST: OFF</button>
-            <button onclick="purgeData()" class="px-2 py-1 border border-red-900 text-red-900 text-[9px] rounded">PURGE</button>
+            <button onclick="setTeamCode()" id="team-btn" class="px-2 py-1 border border-blue-900 text-blue-500 text-[9px] rounded uppercase font-bold">TEAM: 0000</button>
+            <button onclick="toggleGhost()" id="ghost-btn" class="px-2 py-1 border border-green-900 text-green-700 text-[9px] rounded uppercase font-bold italic">STEALTH: OFF</button>
         </div>
     </div>
 
@@ -50,49 +50,49 @@
     <div class="flex-1 p-4 bg-black flex flex-col gap-3">
         <div class="flex gap-2">
             <button onclick="manualScan()" id="scan-btn" class="flex-[2] bg-green-600 text-black font-black py-4 rounded active:bg-green-400 transition-all uppercase tracking-tighter">Initiate Scan</button>
-            <button onclick="mockTest()" class="flex-1 bg-zinc-900 text-zinc-500 text-[9px] rounded uppercase font-bold">Mock Test</button>
+            <button onclick="mockTest()" class="flex-1 bg-zinc-900 text-zinc-500 text-[9px] rounded uppercase font-bold">Mock Trace</button>
         </div>
 
         <div class="grid grid-cols-2 gap-2 text-[10px]">
-            <div class="bg-zinc-950 p-3 border border-green-950">
+            <div class="bg-zinc-950 p-3 border border-green-950 shadow-inner">
                 <p class="text-zinc-600 uppercase">Vector Dist</p>
                 <p id="near-dist" class="text-green-500 text-lg font-bold font-mono">---</p>
             </div>
-            <div class="bg-zinc-950 p-3 border border-green-950">
-                <p class="text-zinc-600 uppercase">Nodes found</p>
+            <div class="bg-zinc-950 p-3 border border-green-950 shadow-inner">
+                <p class="text-zinc-600 uppercase">Signals Mapped</p>
                 <p id="tower-info" class="text-green-500 text-lg font-bold font-mono">0</p>
             </div>
         </div>
 
         <div id="log" class="flex-1 bg-zinc-950 border border-green-900/20 p-3 overflow-y-auto text-[9px] font-mono text-green-700 leading-relaxed shadow-inner">
             <div>> TERMINAL INITIALIZED...</div>
-            <div>> WAITING FOR CREDENTIALS...</div>
+            <div>> SYSTEM READY: ENCRYPTED_CHANNEL</div>
         </div>
     </div>
 
     <script>
+        // --- CONFIGURATION ---
+        const SB_URL = "https://eeuyzxggyyxnytxawwaj.supabase.co";
+        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVldXl6eGdneXl4bnl0eGF3d2FqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NzAwMjEsImV4cCI6MjA4OTE0NjAyMX0.ymK6AubePnJvpKUD4kF4OO84tzVB838kobHZRSa4mwo";
+        
         let map, userMarker, supabase, channel;
-        let isGhost = false, tether = null, markers = {};
+        let isGhost = false, tether = null, markers = {}, teamCode = "0000", ghostTimer;
 
-        // --- SERVICE WORKER (OFFLINE SUPPORT) ---
+        // --- PWA SERVICE WORKER ---
         if ('serviceWorker' in navigator) {
-            const sw = `const C='r-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.addAll(['/']))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
+            const sw = `const C='radar-v15';self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.addAll(['/']))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
             const blob = new Blob([sw], {type:'text/javascript'});
             navigator.serviceWorker.register(URL.createObjectURL(blob));
         }
 
         // --- INITIALIZATION ---
         async function init() {
-            const url = localStorage.getItem('sb_url') || prompt("SUPABASE URL:");
-            const key = localStorage.getItem('sb_key') || prompt("SUPABASE ANON KEY:");
-            if(!url || !key) return log("CRITICAL: NO CREDENTIALS");
-            
-            localStorage.setItem('sb_url', url); localStorage.setItem('sb_key', key);
-            supabase = window.supabase.createClient(url, key);
-            
+            supabase = window.supabase.createClient(SB_URL, SB_KEY);
             setupMap();
             connectSignals();
             startGPS();
+            resetGhostTimer();
+            log(`CONNECTED TO GRID: ${SB_URL.split('//')[1].split('.')[0]}`);
         }
 
         function setupMap() {
@@ -102,16 +102,16 @@
 
         function log(m) {
             const l = document.getElementById('log');
-            l.innerHTML += `<div>> ${m}</div>`;
+            l.innerHTML += `<div>> ${new Date().toLocaleTimeString()} ${m}</div>`;
             l.scrollTop = l.scrollHeight;
         }
 
-        // --- CORE NAVIGATION & SCANNING ---
+        // --- SCANNING & INFRASTRUCTURE ---
         async function manualScan() {
-            if(!userMarker) return log("ERR: NO GPS LOCK");
+            if(!userMarker) return log("ERR: GPS LOCK REQUIRED");
             const btn = document.getElementById('scan-btn');
             btn.disabled = true; btn.innerText = "SCANNING...";
-            log("POLLING SECTOR NODES...");
+            log("POLLING SECTOR INFRASTRUCTURE...");
 
             const p = userMarker.getLatLng();
             const query = `[out:json][timeout:15];(node["man_made"~"tower|mast|communications"](around:5000,${p.lat},${p.lng}););out body;`;
@@ -128,37 +128,29 @@
                     markers[node.id] = m;
                 });
 
-                document.getElementById('tower-info').innerText = data.elements.length;
-                log(`SCAN SUCCESS: ${data.elements.length} NODES IDENTIFIED`);
+                document.getElementById('tower-info').innerText = data.elements.length + Object.keys(markers).length;
+                log(`SCAN SUCCESS: ${data.elements.length} INFRA NODES`);
                 if(navigator.vibrate) navigator.vibrate([100,50,100]);
-            } catch(e) { log("ERR: NETWORK INTERFERENCE"); }
+            } catch(e) { log("ERR: SCAN TIMEOUT"); }
             
             btn.disabled = false; btn.innerText = "INITIATE SCAN";
         }
 
-        function drawTether(tLat, tLng) {
-            if(tether) map.removeLayer(tether);
-            const u = userMarker.getLatLng();
-            tether = L.polyline([[u.lat, u.lng], [tLat, tLng]], {className: 'radar-line', weight: 2}).addTo(map);
-            const d = (map.distance(u, [tLat, tLng]) / 1000).toFixed(2);
-            document.getElementById('near-dist').innerText = d + " KM";
-            log(`VECTOR SET: ${d}KM TO NODE`);
-        }
-
+        // --- GPS & PRESENCE ---
         function startGPS() {
             navigator.geolocation.watchPosition(p => {
                 const { latitude: lat, longitude: lng } = p.coords;
                 if(!userMarker) {
                     userMarker = L.circleMarker([lat, lng], {color: '#22c55e', fillOpacity:1, radius: 6}).addTo(map);
                     map.setView([lat, lng], 15);
-                    log("GPS LOCK ESTABLISHED");
+                    log("GPS LOCK: ONLINE");
                 } else {
                     userMarker.setLatLng([lat, lng]);
                 }
-                document.getElementById('geo-status').innerText = `LAT:${lat.toFixed(3)} LON:${lng.toFixed(3)}`;
-                if(!isGhost) channel.track({lat, lng, id: 'ALPHA_NODE'});
+                document.getElementById('geo-status').innerText = `FIX: ${lat.toFixed(4)} / ${lng.toFixed(4)}`;
+                if(!isGhost) channel.track({lat, lng, id: 'ALPHA_NODE', team: teamCode});
                 if(tether) drawTether(tether.getLatLngs()[1].lat, tether.getLatLngs()[1].lng);
-            }, e => log("ERR: GPS DENIED"), {enableHighAccuracy:true});
+            }, e => log("ERR: GPS SIGNAL BLOCKED"), {enableHighAccuracy:true});
         }
 
         function connectSignals() {
@@ -166,31 +158,56 @@
             channel.on('presence', {event:'sync'}, () => {
                 const state = channel.presenceState();
                 Object.values(state).flat().forEach(s => {
-                    if(s.id === 'ALPHA_NODE' || markers[s.id]) return;
+                    // Only show signals with the same Team Code
+                    if(s.id === 'ALPHA_NODE' || markers[s.id] || s.team !== teamCode) return;
                     const icon = L.divIcon({ className: 'radar-node', html: `<div class="w-3 h-3 bg-red-600 rounded-full shadow-[0_0_8px_red]"></div>` });
                     markers[s.id] = L.marker([s.lat, s.lng], {icon}).addTo(map).on('click', () => drawTether(s.lat, s.lng));
-                    log("FOREIGN SIGNAL DETECTED");
+                    log("SECURE SIGNAL DETECTED");
                 });
             }).subscribe();
         }
 
-        // --- UTILS ---
-        function mockTest() {
-            log("SIMULATING TEST NODE...");
-            const p = userMarker ? userMarker.getLatLng() : {lat: 6.33, lng: 5.62};
-            const mockLat = p.lat + 0.005, mockLng = p.lng + 0.005;
-            drawTether(mockLat, mockLng);
+        // --- NAVIGATION & TACTICAL ---
+        function drawTether(tLat, tLng) {
+            if(tether) map.removeLayer(tether);
+            const u = userMarker.getLatLng();
+            tether = L.polyline([[u.lat, u.lng], [tLat, tLng]], {className: 'radar-line', weight: 2}).addTo(map);
+            const d = (map.distance(u, [tLat, tLng]) / 1000).toFixed(2);
+            document.getElementById('near-dist').innerText = d + " KM";
+            log(`VECTOR_SET: ${d}KM TO SIGNAL`);
         }
 
         function toggleGhost() {
             isGhost = !isGhost;
-            document.getElementById('ghost-btn').innerText = `GHOST: ${isGhost ? 'ON':'OFF'}`;
-            log(isGhost ? "STEALTH ACTIVATED" : "BROADCAST RESUMED");
+            document.getElementById('ghost-btn').innerText = `STEALTH: ${isGhost ? 'ON':'OFF'}`;
+            document.getElementById('ghost-btn').style.color = isGhost ? '#ef4444' : '#15803d';
+            log(isGhost ? "RADIO SILENCE ACTIVATED" : "BROADCAST RESUMED");
         }
 
-        function purgeData() {
-            localStorage.clear();
-            location.reload();
+        function setTeamCode() {
+            const code = prompt("ENTER 4-DIGIT TEAM SECRET:", teamCode);
+            if(code) {
+                teamCode = code;
+                document.getElementById('team-btn').innerText = `TEAM: ${code}`;
+                log(`NETWORKS SWITCHED: CODE ${code}`);
+            }
+        }
+
+        // --- WATCHDOG: AUTO-STEALTH ---
+        function resetGhostTimer() {
+            clearTimeout(ghostTimer);
+            ghostTimer = setTimeout(() => {
+                if (!isGhost) {
+                    toggleGhost();
+                    log("AUTO-STEALTH: RADIO SILENCE ENGAGED");
+                }
+            }, 600000); // 10 Minutes
+        }
+
+        function mockTest() {
+            log("SIMULATING TETHER...");
+            const p = userMarker ? userMarker.getLatLng() : {lat: 6.52, lng: 3.37};
+            drawTether(p.lat + 0.005, p.lng + 0.005);
         }
 
         init();
