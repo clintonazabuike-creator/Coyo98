@@ -3,105 +3,94 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>RADAR_OS // NET-SCANNER</title>
-    
+    <title>RADAR_OS // OMNI-GUIDE</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    
     <style>
-        body { background: #000; color: #3b82f6; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; }
-        #map { height: 65vh; width: 100vw; background: #000; filter: invert(100%) hue-rotate(180deg) brightness(80%); }
-        .terminal { height: 140px; background: rgba(0,0,0,0.9); border-top: 2px solid #1e3a8a; padding: 12px; font-size: 10px; overflow-y: auto; color: #60a5fa; }
-        .scan-btn { @apply flex-1 bg-blue-700 text-white font-black py-4 rounded uppercase text-[10px] tracking-widest active:bg-blue-500 transition-all; }
-        .node-mast { color: #ef4444; } /* Red for Masts */
-        .node-wifi { color: #fbbf24; } /* Amber for WiFi */
-        .node-fiber { color: #3b82f6; } /* Blue for Fiber */
+        body { background: #000; color: #f43f5e; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; }
+        #map { height: 60vh; width: 100vw; background: #000; filter: invert(100%) hue-rotate(280deg) brightness(70%); }
+        .terminal { height: 180px; background: rgba(10, 0, 0, 0.95); border-top: 2px solid #f43f5e; padding: 15px; font-size: 10px; overflow-y: auto; color: #f43f5e; }
+        .hud-btn { @apply flex-1 bg-rose-950 text-rose-400 border border-rose-500/30 py-4 rounded uppercase text-[9px] font-black tracking-[0.2em] active:bg-rose-500 active:text-black; }
     </style>
 </head>
 <body class="flex flex-col h-screen">
 
-    <div class="absolute top-10 left-6 z-[3000] pointer-events-none">
-        <h1 class="text-sm font-black tracking-[0.4em] text-blue-500">NET_SCANNER_V18</h1>
-        <p id="stat-label" class="text-[9px] text-blue-900 font-bold uppercase mt-1">Infrastructure Mode: Active</p>
-    </div>
-
     <div id="map"></div>
 
-    <div class="p-4 bg-zinc-950 flex gap-2 z-[3000]">
-        <button onclick="getLoc()" class="scan-btn">1. Set Fix</button>
-        <button onclick="scanNet()" class="scan-btn bg-zinc-800 border border-blue-900">2. Scan Net Nodes</button>
+    <div class="p-4 bg-black flex flex-col gap-2 border-t border-rose-900/50">
+        <div class="flex gap-2">
+            <button onclick="getLoc()" class="hud-btn border-rose-500 shadow-[0_0_10px_#f43f5e33]">Sync Position</button>
+            <button onclick="dropIntel()" class="hud-btn">Mark Signal</button>
+        </div>
+        <button onclick="deepScan()" class="w-full py-2 bg-zinc-900 text-rose-800 text-[8px] border border-rose-950 rounded uppercase">Deep Spectrum Scan (15KM)</button>
     </div>
 
     <div class="terminal">
         <div id="log-content" class="space-y-1">
-            <div>> READY TO SCAN LOCAL TOPOLOGY...</div>
+            <div class="text-rose-500 font-bold underline mb-2 italic">GUIDE_MODE: INITIALIZED</div>
+            <div>> READY TO MAP THE UNSEEN.</div>
         </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map, userMarker, nodeLayer;
+        let map, userMarker, intelLayer;
 
-        function log(msg, colorClass = '') {
+        function log(msg, important = false) {
             const l = document.getElementById('log-content');
-            l.innerHTML += `<div class="${colorClass}">> ${msg}</div>`;
+            const style = important ? 'text-white font-bold bg-rose-900 px-1' : '';
+            l.innerHTML += `<div class="${style}">> ${msg}</div>`;
             document.querySelector('.terminal').scrollTop = document.querySelector('.terminal').scrollHeight;
         }
 
         window.onload = () => {
-            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([6.52, 3.37], 13);
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([6.5, 3.3], 12);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            nodeLayer = L.layerGroup().addTo(map);
-            log("NET_SCANNER ENGINE ONLINE.");
+            intelLayer = L.layerGroup().addTo(map);
+            log("SENSORS ONLINE. WAITING FOR COORDINATES.");
         };
 
         function getLoc() {
-            log("LOCKING GPS COORDINATES...");
             navigator.geolocation.getCurrentPosition((pos) => {
                 const { latitude: lat, longitude: lng } = pos.coords;
                 if (userMarker) map.removeLayer(userMarker);
-                userMarker = L.circleMarker([lat, lng], { color: '#3b82f6', radius: 8, fillOpacity: 1 }).addTo(map);
-                map.setView([lat, lng], 16);
-                log(`FIX SECURED: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-            }, (e) => log("ERROR: " + e.message));
+                userMarker = L.circleMarker([lat, lng], { color: '#f43f5e', radius: 6, fillOpacity: 1 }).addTo(map);
+                map.setView([lat, lng], 15);
+                log(`COORD_LOCK: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+            });
         }
 
-        async function scanNet() {
-            if (!userMarker) return log("SET FIX FIRST.", "text-red-500");
+        function dropIntel() {
+            if (!userMarker) return log("ERROR: POSITION NOT SYNCED");
             const pos = userMarker.getLatLng();
-            log("QUERYING LOCAL ISP INFRASTRUCTURE...");
+            L.marker([pos.lat, pos.lng], {
+                icon: L.divIcon({html: '<div style="width:10px;height:10px;background:#fff;border-radius:50%;box-shadow:0 0 10px #fff"></div>', className:''})
+            }).addTo(intelLayer).bindPopup("MANUAL_INTEL_NODE");
+            log("INTEL_NODE DROPPED AT CURRENT VECTOR.", true);
+        }
+
+        async function deepScan() {
+            if (!userMarker) return log("SYNC POSITION FIRST.");
+            const pos = userMarker.getLatLng();
+            log("QUERYING DEEP SPECTRUM (15KM)...");
             
-            // Querying for: masts, cabinets (fiber), and public wifi nodes
-            const q = `[out:json][timeout:25];
-                (
-                  node["man_made"~"tower|mast|communications_tower"](around:5000,${pos.lat},${pos.lng});
-                  node["telecom"~"cabinet|exchange|distribution_point"](around:5000,${pos.lat},${pos.lng});
-                  node["amenity"~"public_wifi|wlan"](around:5000,${pos.lat},${pos.lng});
-                );
-                out body;`;
+            // Expanded query to include power lines, towers, and exchanges
+            const q = `[out:json];(node["man_made"~"tower|mast|antenna"](around:15000,${pos.lat},${pos.lng});way["power"="line"](around:5000,${pos.lat},${pos.lng}););out body;`;
             
             try {
                 const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
                 const data = await res.json();
-                nodeLayer.clearLayers();
-                
                 if(data.elements.length === 0) {
-                    log("NO INFRASTRUCTURE NODES FOUND IN 5KM.", "text-yellow-500");
+                    log("NO INFRASTRUCTURE DETECTED. SECTOR IS DARK.");
                 } else {
                     data.elements.forEach(n => {
-                        let color = '#3b82f6'; // Default Fiber Blue
-                        let label = "Telecom Node";
-
-                        if(n.tags.man_made) { color = '#ef4444'; label = "Cellular Mast"; }
-                        if(n.tags.amenity) { color = '#fbbf24'; label = "Public Access Point"; }
-
-                        L.circleMarker([n.lat, n.lon], { 
-                            color: color, radius: 5, weight: 2, fillOpacity: 0.5 
-                        }).addTo(nodeLayer).bindPopup(`<b>${label}</b>`);
+                        if(n.type === "node") {
+                            L.circleMarker([n.lat, n.lon], { color: '#f43f5e', radius: 3 }).addTo(intelLayer);
+                        }
                     });
-                    log(`DETECTED ${data.elements.length} ACTIVE INTERNET NODES.`, "text-blue-400");
+                    log(`DEEP SCAN SUCCESS: ${data.elements.length} NODES FOUND.`);
                 }
-            } catch(e) { log("SCAN FAILED: DATA TIMEOUT."); }
+            } catch(e) { log("CONNECTION TIMEOUT."); }
         }
     </script>
 </body>
