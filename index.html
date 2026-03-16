@@ -3,123 +3,94 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>RADAR_OS // CELESTIAL</title>
+    <title>RADAR_OS // INTERCEPTOR</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { background: #000; color: #10b981; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; }
-        #map { height: 60vh; width: 100vw; background: #000; filter: invert(100%) hue-rotate(180deg) brightness(80%) contrast(120%); }
-        .terminal { height: 180px; background: rgba(0,0,0,0.9); border-top: 1px solid #10b981; padding: 12px; font-size: 10px; overflow-y: auto; color: #10b981; }
-        .hud-stats { position: absolute; top: 100px; right: 10px; text-align: right; pointer-events: none; z-index: 1000; font-size: 9px; }
-        .btn-hex { @apply flex-1 bg-emerald-900/30 border border-emerald-500/50 text-emerald-500 py-3 rounded uppercase text-[9px] font-black tracking-widest active:bg-emerald-500 active:text-black; }
-        #horizon { width: 60px; height: 60px; border: 1px solid #10b981; border-radius: 50%; position: relative; display: inline-block; }
-        #horizon-line { width: 100%; height: 1px; background: #10b981; position: absolute; top: 50%; transition: transform 0.1s; }
+        body { background: #000; color: #3b82f6; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; }
+        #map { height: 60vh; width: 100vw; background: #000; filter: invert(100%) hue-rotate(190deg) brightness(80%) contrast(150%); }
+        .terminal { height: 200px; background: rgba(0,5,10,0.95); border-top: 1px solid #1e3a8a; padding: 15px; font-size: 10px; overflow-y: auto; color: #3b82f6; }
+        .scanning-bar { width: 100%; height: 2px; background: #3b82f6; position: absolute; top: 0; animation: scan 2s linear infinite; z-index: 2000; box-shadow: 0 0 15px #3b82f6; }
+        @keyframes scan { from { top: 0; } to { top: 60vh; } }
+        .btn-intercept { @apply flex-1 bg-blue-900/40 border border-blue-500 text-blue-400 py-3 rounded font-black text-[9px] uppercase tracking-tighter active:bg-blue-500 active:text-white; }
     </style>
 </head>
 <body class="flex flex-col h-screen">
 
-    <div id="decoy" class="hidden h-screen w-screen bg-white p-10 text-black">
-        <h1 class="text-2xl font-sans">Weather</h1>
-        <div class="mt-4 text-6xl">28°C</div>
-        <div class="mt-2 text-gray-500">Sunny - Yenagoa</div>
-        <button onclick="togglePanic()" class="mt-20 opacity-0">Unlock</button>
+    <div class="scanning-bar" id="scanner" style="display:none;"></div>
+
+    <div id="map"></div>
+
+    <div class="p-4 bg-zinc-950 flex flex-col gap-2 border-t border-blue-900/30">
+        <div class="flex gap-2">
+            <button onclick="syncFix()" class="btn-intercept">1. Set Base</button>
+            <button onclick="startIntercept()" class="btn-intercept">2. Intercept Nodes</button>
+        </div>
+        <button onclick="toggleScanner()" class="w-full py-1 text-[8px] border border-blue-900/20 text-blue-900 uppercase">Toggle Spectrum Scan</button>
     </div>
 
-    <div id="main-ui">
-        <div class="p-4 flex justify-between items-start z-[2000] absolute w-full pointer-events-none">
-            <div>
-                <h1 class="text-xs font-black tracking-[0.4em]">RADAR_OS // V19</h1>
-                <p id="time-hud" class="text-[8px] opacity-60">UTC: 00:00:00</p>
-            </div>
-            <div id="horizon"><div id="horizon-line"></div></div>
-        </div>
-
-        <div id="map"></div>
-
-        <div class="hud-stats">
-            <div>SATS_IN_VIEW: <span id="sat-count">04</span></div>
-            <div>ALTITUDE: <span id="alt-data">0m</span></div>
-            <div>ACCURACY: <span id="acc-data">0m</span></div>
-        </div>
-
-        <div class="p-3 bg-zinc-950 flex flex-col gap-2">
-            <div class="flex gap-2">
-                <button onclick="syncVitals()" class="btn-hex bg-emerald-600 text-black">Sync Vitals</button>
-                <button onclick="markIntel()" class="btn-hex">Mark Node</button>
-                <button onclick="togglePanic()" class="btn-hex border-emerald-900 opacity-40">Stealth</button>
-            </div>
-            <button onclick="clearIntel()" class="text-[7px] text-emerald-900 uppercase">Clear Local Memory Cache</button>
-        </div>
-
-        <div class="terminal" id="term">
-            <div class="text-emerald-900 font-bold underline mb-1">SYSTEM_RECON_INITIALIZED</div>
-            <div id="log-content">> STANDBY FOR HANDSHAKE...</div>
-        </div>
+    <div class="terminal" id="term">
+        <div class="text-blue-500 font-bold mb-2">INTERCEPTOR_MODULE_ACTIVE</div>
+        <div id="log-content">> STANDBY FOR PACKET CAPTURE...</div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map, userMarker, intelLayer;
+        let map, userMarker, nodeLayer;
 
         window.onload = () => {
-            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([4.93, 6.26], 13);
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([6.5, 3.3], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            intelLayer = L.layerGroup().addTo(map);
-            
-            // Load Saved Nodes
-            const saved = JSON.parse(localStorage.getItem('intel_nodes') || '[]');
-            saved.forEach(n => L.circleMarker([n.lat, n.lng], {color: '#fff', radius: 3}).addTo(intelLayer));
-            
-            log(`RECONSTRUCTED ${saved.length} NODES FROM CACHE.`);
-            
-            // Clock & Orientation
-            setInterval(() => { document.getElementById('time-hud').innerText = "UTC: " + new Date().toISOString().split('T')[1].split('.')[0]; }, 1000);
-            window.addEventListener('deviceorientation', (e) => {
-                const pitch = e.beta; // Pitch
-                document.getElementById('horizon-line').style.transform = `translateY(${pitch/2}px) rotate(${e.gamma}deg)`;
-            });
+            nodeLayer = L.layerGroup().addTo(map);
+            log("LISTENING ON PORT 80/443...");
         };
 
-        function log(m) {
+        function log(m, type = 'info') {
             const l = document.getElementById('log-content');
-            l.innerHTML += `<div>> ${m}</div>`;
+            const color = type === 'warn' ? 'text-yellow-500' : 'text-blue-400';
+            l.innerHTML += `<div class="${color}">> [${new Date().toLocaleTimeString()}] ${m}</div>`;
             document.getElementById('term').scrollTop = document.getElementById('term').scrollHeight;
         }
 
-        function togglePanic() {
-            document.getElementById('main-ui').classList.toggle('hidden');
-            document.getElementById('decoy').classList.toggle('hidden');
+        function toggleScanner() {
+            const s = document.getElementById('scanner');
+            s.style.display = s.style.display === 'none' ? 'block' : 'none';
         }
 
-        function syncVitals() {
-            navigator.geolocation.watchPosition(p => {
-                const { latitude: lat, longitude: lng, altitude, accuracy } = p.coords;
+        function syncFix() {
+            navigator.geolocation.getCurrentPosition(p => {
+                const { latitude: lat, longitude: lng } = p.coords;
                 if (!userMarker) {
-                    userMarker = L.circleMarker([lat, lng], { color: '#10b981', radius: 7, fillOpacity: 1 }).addTo(map);
-                    map.setView([lat, lng], 16);
+                    userMarker = L.circleMarker([lat, lng], { color: '#3b82f6', radius: 6 }).addTo(map);
                 } else { userMarker.setLatLng([lat, lng]); }
-                
-                document.getElementById('alt-data').innerText = (altitude || 0).toFixed(1) + "m";
-                document.getElementById('acc-data').innerText = accuracy.toFixed(1) + "m";
-                log(`POSITION_UPDATE: ${lat.toFixed(4)},${lng.toFixed(4)}`);
-            }, null, {enableHighAccuracy: true});
+                map.setView([lat, lng], 17);
+                log(`BASE_STATION_SYNC: ${lat.toFixed(4)},${lng.toFixed(4)}`);
+            });
         }
 
-        function markIntel() {
-            if (!userMarker) return log("ERR: SYNC VITALS FIRST");
-            const pos = userMarker.getLatLng();
-            L.circleMarker([pos.lat, pos.lng], { color: '#fff', radius: 5 }).addTo(intelLayer);
+        async function startIntercept() {
+            if(!userMarker) return log("ERR: SYNC BASE FIRST", "warn");
+            log("SCANNING FOR PUBLIC IP GATEWAYS...");
             
-            const saved = JSON.parse(localStorage.getItem('intel_nodes') || '[]');
-            saved.push({lat: pos.lat, lng: pos.lng});
-            localStorage.setItem('intel_nodes', JSON.stringify(saved));
-            log("INTEL_NODE_STORED.");
-        }
-
-        function clearIntel() {
-            localStorage.removeItem('intel_nodes');
-            intelLayer.clearLayers();
-            log("CACHE_PURGED.");
+            const pos = userMarker.getLatLng();
+            // This queries for routers, wifi points, and switches
+            const q = `[out:json];(node["telecom"~"exchange|distribution_point"](around:2000,${pos.lat},${pos.lng});node["amenity"~"public_wifi"](around:2000,${pos.lat},${pos.lng}););out body;`;
+            
+            try {
+                const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
+                const data = await res.json();
+                
+                data.elements.forEach(n => {
+                    // Create a "Radius" of connection (approx 100m)
+                    L.circle([n.lat, n.lon], {
+                        radius: 100, color: '#3b82f6', fillOpacity: 0.1, weight: 1
+                    }).addTo(nodeLayer);
+                    
+                    L.circleMarker([n.lat, n.lon], { color: '#3b82f6', radius: 3 }).addTo(nodeLayer);
+                });
+                
+                log(`INTERCEPTED ${data.elements.length} GATEWAYS. EVERY DEVICE IN THESE BLUE CIRCLES IS CONNECTED.`, "warn");
+            } catch(e) { log("INTERCEPT_TIMEOUT"); }
         }
     </script>
 </body>
