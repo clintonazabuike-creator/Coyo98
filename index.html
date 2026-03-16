@@ -3,167 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>RADAR_OS // PHANTOM</title>
+    <title>RADAR_OS // NET-SCANNER</title>
     
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2554/2554930.png">
-    <link rel="manifest" href="data:application/manifest+json,{'name':'RADAR_OS','short_name':'RADAR','start_url':'.','display':'standalone','background_color':'#000000','theme_color':'#10b981'}">
-
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <style>
-        body { background: #000; color: #10b981; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; }
-        #map { height: 100vh; width: 100vw; background: #000; filter: invert(100%) hue-rotate(180deg) contrast(110%); transition: transform 0.1s linear; }
-        
-        /* HUD ELEMENTS */
-        .hud-vitals { position: absolute; bottom: 180px; left: 20px; z-index: 2000; pointer-events: none; text-shadow: 0 0 5px #000; }
-        .compass-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 280px; height: 280px; border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 50%; pointer-events: none; z-index: 1001; }
-        .compass-ring::before { content: 'N'; position: absolute; top: -25px; left: 50%; transform: translateX(-50%); color: #10b981; font-weight: 900; }
-
-        .terminal { position: absolute; bottom: 0; width: 100%; height: 160px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); border-top: 1px solid #064e3b; padding: 15px; font-size: 10px; overflow-y: auto; z-index: 3000; }
-        
-        .radar-sweep { position: absolute; top: 50%; left: 50%; width: 300px; height: 300px; background: conic-gradient(from 0deg, rgba(16, 185, 129, 0.2), transparent 90deg); border-radius: 50%; transform: translate(-50%, -50%); animation: sweep 4s linear infinite; pointer-events: none; z-index: 1002; }
-        @keyframes sweep { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
-        
-        .tether-line { stroke: #10b981; stroke-dasharray: 4, 8; animation: dash 0.5s linear infinite; }
-        @keyframes dash { to { stroke-dashoffset: -12; } }
+        body { background: #000; color: #3b82f6; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; }
+        #map { height: 65vh; width: 100vw; background: #000; filter: invert(100%) hue-rotate(180deg) brightness(80%); }
+        .terminal { height: 140px; background: rgba(0,0,0,0.9); border-top: 2px solid #1e3a8a; padding: 12px; font-size: 10px; overflow-y: auto; color: #60a5fa; }
+        .scan-btn { @apply flex-1 bg-blue-700 text-white font-black py-4 rounded uppercase text-[10px] tracking-widest active:bg-blue-500 transition-all; }
+        .node-mast { color: #ef4444; } /* Red for Masts */
+        .node-wifi { color: #fbbf24; } /* Amber for WiFi */
+        .node-fiber { color: #3b82f6; } /* Blue for Fiber */
     </style>
 </head>
-<body>
+<body class="flex flex-col h-screen">
 
-    <div class="absolute top-10 left-6 z-[3000]">
-        <h1 class="text-sm font-black tracking-[0.5em] text-emerald-500">PHANTOM_OS_V17</h1>
-        <p id="heading-data" class="text-[9px] text-emerald-700 font-bold uppercase mt-1">Bearing: 000° // STEALTH_ACTIVE</p>
+    <div class="absolute top-10 left-6 z-[3000] pointer-events-none">
+        <h1 class="text-sm font-black tracking-[0.4em] text-blue-500">NET_SCANNER_V18</h1>
+        <p id="stat-label" class="text-[9px] text-blue-900 font-bold uppercase mt-1">Infrastructure Mode: Active</p>
     </div>
-
-    <div class="radar-sweep"></div>
-    <div class="compass-ring"></div>
 
     <div id="map"></div>
 
-    <div class="hud-vitals">
-        <div class="text-[8px] mb-1 opacity-70">LAT: <span id="out-lat">0.000</span></div>
-        <div class="text-[8px] mb-1 opacity-70">LNG: <span id="out-lng">0.000</span></div>
-        <div class="text-[10px] text-emerald-400 font-bold">RANGE: <span id="out-dist">NO TARGET</span></div>
+    <div class="p-4 bg-zinc-950 flex gap-2 z-[3000]">
+        <button onclick="getLoc()" class="scan-btn">1. Set Fix</button>
+        <button onclick="scanNet()" class="scan-btn bg-zinc-800 border border-blue-900">2. Scan Net Nodes</button>
     </div>
 
     <div class="terminal">
-        <div class="flex gap-2 mb-4">
-            <button onclick="requestPermissions()" class="flex-1 bg-emerald-600 text-black font-black py-3 rounded uppercase text-[10px] tracking-widest shadow-[0_0_15px_rgba(16,185,129,0.5)]">Sync Vitals</button>
-            <button onclick="scanInfra()" class="flex-1 bg-zinc-900 text-emerald-500 text-[10px] py-3 rounded border border-emerald-900 font-bold uppercase">Wide Scan</button>
-        </div>
         <div id="log-content" class="space-y-1">
-            <div class="text-emerald-900 uppercase font-black text-[8px] mb-2 underline">System Initialization Log</div>
-            <div>> KERNEL: ONLINE</div>
-            <div>> STANDBY FOR USER HANDSHAKE...</div>
+            <div>> READY TO SCAN LOCAL TOPOLOGY...</div>
         </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map, userMarker, tetherLine, trail = [];
-        let currentHeading = 0;
+        let map, userMarker, nodeLayer;
 
-        function log(msg) {
+        function log(msg, colorClass = '') {
             const l = document.getElementById('log-content');
-            l.innerHTML += `<div class='animate-pulse'>> ${msg}</div>`;
+            l.innerHTML += `<div class="${colorClass}">> ${msg}</div>`;
             document.querySelector('.terminal').scrollTop = document.querySelector('.terminal').scrollHeight;
         }
 
         window.onload = () => {
             map = L.map('map', { zoomControl: false, attributionControl: false }).setView([6.52, 3.37], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            map.on('click', (e) => setTether(e.latlng));
-            log("PHANTOM COMMANDER LOADED.");
+            nodeLayer = L.layerGroup().addTo(map);
+            log("NET_SCANNER ENGINE ONLINE.");
         };
 
-        async function requestPermissions() {
-            log("RESERVING GPS CHANNEL...");
-            
-            // Handle iOS/Android Orientation
-            if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                const permission = await DeviceOrientationEvent.requestPermission();
-                if (permission === 'granted') window.addEventListener('deviceorientation', handleOrientation);
-            } else {
-                window.addEventListener('deviceorientation', handleOrientation);
-            }
-
-            navigator.geolocation.watchPosition(updateGPS, (e) => log("GPS_ERR: " + e.message), { enableHighAccuracy: true });
-        }
-
-        function handleOrientation(e) {
-            const heading = e.webkitCompassHeading || (360 - e.alpha);
-            if (!heading) return;
-            currentHeading = heading;
-            document.getElementById('heading-data').innerText = `Bearing: ${Math.round(heading)}° // STEALTH_ACTIVE`;
-            document.getElementById('map').style.transform = `rotate(${-heading}deg)`;
-        }
-
-        function updateGPS(pos) {
-            const { latitude: lat, longitude: lng } = pos.coords;
-            document.getElementById('out-lat').innerText = lat.toFixed(4);
-            document.getElementById('out-lng').innerText = lng.toFixed(4);
-
-            if (!userMarker) {
-                userMarker = L.circleMarker([lat, lng], { color: '#10b981', radius: 8, fillOpacity: 1 }).addTo(map);
+        function getLoc() {
+            log("LOCKING GPS COORDINATES...");
+            navigator.geolocation.getCurrentPosition((pos) => {
+                const { latitude: lat, longitude: lng } = pos.coords;
+                if (userMarker) map.removeLayer(userMarker);
+                userMarker = L.circleMarker([lat, lng], { color: '#3b82f6', radius: 8, fillOpacity: 1 }).addTo(map);
                 map.setView([lat, lng], 16);
-                log("FIX ACQUIRED.");
-            } else {
-                userMarker.setLatLng([lat, lng]);
-            }
-
-            trail.push([lat, lng]);
-            if(trail.length > 1) {
-                L.polyline(trail.slice(-2), { color: '#10b981', weight: 1, opacity: 0.2 }).addTo(map);
-            }
-            if (tetherLine) updateTether();
+                log(`FIX SECURED: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+            }, (e) => log("ERROR: " + e.message));
         }
 
-        function setTether(targetLatLng) {
-            if (!userMarker) return;
-            if (tetherLine) map.removeLayer(tetherLine);
-            tetherLine = L.polyline([userMarker.getLatLng(), targetLatLng], { 
-                color: '#10b981', weight: 2, className: 'tether-line' 
-            }).addTo(map);
-            updateTether();
-            log("NAV_TARGET: SET");
-        }
-
-        function updateTether() {
-            const start = userMarker.getLatLng();
-            const end = tetherLine.getLatLngs()[1];
-            tetherLine.setLatLngs([start, end]);
-            const dist = (map.distance(start, end) / 1000).toFixed(2);
-            document.getElementById('out-dist').innerText = `${dist} KM`;
-            if (dist < 0.03 && navigator.vibrate) navigator.vibrate([300, 100, 300]);
-        }
-
-        async function scanInfra() {
-            if (!userMarker) return log("SCAN FAIL: NO POSITION");
-            log("BROADCASTING WIDE-SPECTRUM PING...");
+        async function scanNet() {
+            if (!userMarker) return log("SET FIX FIRST.", "text-red-500");
             const pos = userMarker.getLatLng();
-            const q = `[out:json];node["man_made"~"tower|mast|antenna"](around:10000,${pos.lat},${pos.lng});out;`;
+            log("QUERYING LOCAL ISP INFRASTRUCTURE...");
+            
+            // Querying for: masts, cabinets (fiber), and public wifi nodes
+            const q = `[out:json][timeout:25];
+                (
+                  node["man_made"~"tower|mast|communications_tower"](around:5000,${pos.lat},${pos.lng});
+                  node["telecom"~"cabinet|exchange|distribution_point"](around:5000,${pos.lat},${pos.lng});
+                  node["amenity"~"public_wifi|wlan"](around:5000,${pos.lat},${pos.lng});
+                );
+                out body;`;
+            
             try {
                 const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
                 const data = await res.json();
-                data.elements.forEach(n => {
-                    L.circleMarker([n.lat, n.lon], { color: '#ef4444', radius: 4, weight: 1 }).addTo(map);
-                });
-                log(`RECON: ${data.elements.length} NODES IDENTIFIED.`);
-            } catch(e) { log("SCAN TIMEOUT."); }
-        }
+                nodeLayer.clearLayers();
+                
+                if(data.elements.length === 0) {
+                    log("NO INFRASTRUCTURE NODES FOUND IN 5KM.", "text-yellow-500");
+                } else {
+                    data.elements.forEach(n => {
+                        let color = '#3b82f6'; // Default Fiber Blue
+                        let label = "Telecom Node";
 
-        // SERVICE WORKER FOR OFFLINE USE
-        if ('serviceWorker' in navigator) {
-            const swCode = `
-                self.addEventListener('fetch', function(event) {
-                    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
-                });
-            `;
-            const blob = new Blob([swCode], {type: 'text/javascript'});
-            navigator.serviceWorker.register(URL.createObjectURL(blob));
+                        if(n.tags.man_made) { color = '#ef4444'; label = "Cellular Mast"; }
+                        if(n.tags.amenity) { color = '#fbbf24'; label = "Public Access Point"; }
+
+                        L.circleMarker([n.lat, n.lon], { 
+                            color: color, radius: 5, weight: 2, fillOpacity: 0.5 
+                        }).addTo(nodeLayer).bindPopup(`<b>${label}</b>`);
+                    });
+                    log(`DETECTED ${data.elements.length} ACTIVE INTERNET NODES.`, "text-blue-400");
+                }
+            } catch(e) { log("SCAN FAILED: DATA TIMEOUT."); }
         }
     </script>
 </body>
