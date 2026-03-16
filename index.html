@@ -3,94 +3,93 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>RADAR_OS // INTERCEPTOR</title>
+    <title>SPECTRUM_OS</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { background: #000; color: #3b82f6; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; }
-        #map { height: 60vh; width: 100vw; background: #000; filter: invert(100%) hue-rotate(190deg) brightness(80%) contrast(150%); }
-        .terminal { height: 200px; background: rgba(0,5,10,0.95); border-top: 1px solid #1e3a8a; padding: 15px; font-size: 10px; overflow-y: auto; color: #3b82f6; }
-        .scanning-bar { width: 100%; height: 2px; background: #3b82f6; position: absolute; top: 0; animation: scan 2s linear infinite; z-index: 2000; box-shadow: 0 0 15px #3b82f6; }
-        @keyframes scan { from { top: 0; } to { top: 60vh; } }
-        .btn-intercept { @apply flex-1 bg-blue-900/40 border border-blue-500 text-blue-400 py-3 rounded font-black text-[9px] uppercase tracking-tighter active:bg-blue-500 active:text-white; }
+        body { background: #000; color: #fbbf24; font-family: monospace; margin: 0; overflow: hidden; }
+        .scanner-ring { width: 250px; height: 250px; border: 2px solid #fbbf24; border-radius: 50%; position: relative; margin: 50px auto; box-shadow: 0 0 20px #fbbf2433; }
+        .needle { width: 50%; height: 2px; background: #fbbf24; position: absolute; top: 50%; left: 50%; transform-origin: left; animation: rotate 2s linear infinite; }
+        @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .stat-box { @apply bg-zinc-900 border border-amber-900/50 p-4 rounded-lg text-center; }
+        .glitch { animation: glitch 1s infinite; }
+        @keyframes glitch { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
     </style>
 </head>
-<body class="flex flex-col h-screen">
+<body class="p-6">
 
-    <div class="scanning-bar" id="scanner" style="display:none;"></div>
-
-    <div id="map"></div>
-
-    <div class="p-4 bg-zinc-950 flex flex-col gap-2 border-t border-blue-900/30">
-        <div class="flex gap-2">
-            <button onclick="syncFix()" class="btn-intercept">1. Set Base</button>
-            <button onclick="startIntercept()" class="btn-intercept">2. Intercept Nodes</button>
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-xl font-black tracking-tighter italic">SPECTRUM_V21</h1>
+            <p class="text-[8px] text-amber-700 uppercase">Acoustic & Magnetic Recon</p>
         </div>
-        <button onclick="toggleScanner()" class="w-full py-1 text-[8px] border border-blue-900/20 text-blue-900 uppercase">Toggle Spectrum Scan</button>
+        <div id="status-led" class="w-3 h-3 bg-red-600 rounded-full glitch"></div>
     </div>
 
-    <div class="terminal" id="term">
-        <div class="text-blue-500 font-bold mb-2">INTERCEPTOR_MODULE_ACTIVE</div>
-        <div id="log-content">> STANDBY FOR PACKET CAPTURE...</div>
+    <div class="scanner-ring">
+        <div class="needle"></div>
+        <div class="absolute inset-0 flex items-center justify-center">
+            <div class="text-center">
+                <div id="sig-level" class="text-4xl font-black">--</div>
+                <div class="text-[9px] uppercase opacity-50">Signal Flux</div>
+            </div>
+        </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="stat-box">
+            <div id="mag-val" class="text-xl font-bold">0.00</div>
+            <div class="text-[8px] uppercase">Magnetic µT</div>
+        </div>
+        <div class="stat-box">
+            <div id="lat-val" class="text-xl font-bold">--</div>
+            <div class="text-[8px] uppercase">Sector Lat</div>
+        </div>
+    </div>
+
+    <button onclick="engageSensors()" class="w-full py-5 bg-amber-600 text-black font-black uppercase tracking-widest rounded shadow-xl active:scale-95 transition-all">
+        Engage Sensors
+    </button>
+
+    <div id="log" class="mt-6 h-32 overflow-y-auto text-[9px] text-amber-900 space-y-1">
+        > KERNEL STANDBY. INITIALIZE SENSORS TO BEGIN RECON.
+    </div>
+
     <script>
-        let map, userMarker, nodeLayer;
-
-        window.onload = () => {
-            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([6.5, 3.3], 13);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            nodeLayer = L.layerGroup().addTo(map);
-            log("LISTENING ON PORT 80/443...");
-        };
-
-        function log(m, type = 'info') {
-            const l = document.getElementById('log-content');
-            const color = type === 'warn' ? 'text-yellow-500' : 'text-blue-400';
-            l.innerHTML += `<div class="${color}">> [${new Date().toLocaleTimeString()}] ${m}</div>`;
-            document.getElementById('term').scrollTop = document.getElementById('term').scrollHeight;
+        function log(m) {
+            const l = document.getElementById('log');
+            l.innerHTML += `<div>> ${m}</div>`;
+            l.scrollTop = l.scrollHeight;
         }
 
-        function toggleScanner() {
-            const s = document.getElementById('scanner');
-            s.style.display = s.style.display === 'none' ? 'block' : 'none';
-        }
+        async function engageSensors() {
+            log("BOOTING SENSOR ARRAY...");
+            document.getElementById('status-led').classList.replace('bg-red-600', 'bg-green-500');
 
-        function syncFix() {
-            navigator.geolocation.getCurrentPosition(p => {
-                const { latitude: lat, longitude: lng } = p.coords;
-                if (!userMarker) {
-                    userMarker = L.circleMarker([lat, lng], { color: '#3b82f6', radius: 6 }).addTo(map);
-                } else { userMarker.setLatLng([lat, lng]); }
-                map.setView([lat, lng], 17);
-                log(`BASE_STATION_SYNC: ${lat.toFixed(4)},${lng.toFixed(4)}`);
-            });
-        }
+            // 1. Connection Sniffing
+            if (navigator.connection) {
+                const updateConn = () => {
+                    const speed = navigator.connection.downlink;
+                    document.getElementById('sig-level').innerText = speed;
+                    log(`DATA_FLUX: ${speed} Mbps`);
+                };
+                navigator.connection.onchange = updateConn;
+                updateConn();
+            }
 
-        async function startIntercept() {
-            if(!userMarker) return log("ERR: SYNC BASE FIRST", "warn");
-            log("SCANNING FOR PUBLIC IP GATEWAYS...");
-            
-            const pos = userMarker.getLatLng();
-            // This queries for routers, wifi points, and switches
-            const q = `[out:json];(node["telecom"~"exchange|distribution_point"](around:2000,${pos.lat},${pos.lng});node["amenity"~"public_wifi"](around:2000,${pos.lat},${pos.lng}););out body;`;
-            
-            try {
-                const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
-                const data = await res.json();
-                
-                data.elements.forEach(n => {
-                    // Create a "Radius" of connection (approx 100m)
-                    L.circle([n.lat, n.lon], {
-                        radius: 100, color: '#3b82f6', fillOpacity: 0.1, weight: 1
-                    }).addTo(nodeLayer);
-                    
-                    L.circleMarker([n.lat, n.lon], { color: '#3b82f6', radius: 3 }).addTo(nodeLayer);
+            // 2. Magnetic Field (Magnetometer)
+            if (window.DeviceOrientationEvent) {
+                window.addEventListener('deviceorientation', (e) => {
+                    // Simulating magnetic flux via orientation change
+                    const flux = (Math.abs(e.alpha) + Math.abs(e.beta)) / 10;
+                    document.getElementById('mag-val').innerText = flux.toFixed(2);
                 });
-                
-                log(`INTERCEPTED ${data.elements.length} GATEWAYS. EVERY DEVICE IN THESE BLUE CIRCLES IS CONNECTED.`, "warn");
-            } catch(e) { log("INTERCEPT_TIMEOUT"); }
+            }
+
+            // 3. GPS Position
+            navigator.geolocation.watchPosition(p => {
+                document.getElementById('lat-val').innerText = p.coords.latitude.toFixed(3);
+                log("SECTOR COORDINATES UPDATED.");
+            });
         }
     </script>
 </body>
