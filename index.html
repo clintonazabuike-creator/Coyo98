@@ -3,112 +3,130 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>RADAR_SOLO_V15</title>
+    <title>RADAR_OS // COMMANDER</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { background: #020617; color: #4ade80; font-family: monospace; margin: 0; }
-        #map { height: 55vh; width: 100%; background: #000; border-bottom: 2px solid #1e293b; }
-        .terminal { height: 100px; background: #000; padding: 10px; font-size: 10px; overflow-y: auto; border: 1px solid #1e293b; margin: 10px; color: #22c55e; }
-        input { background: #0f172a; border: 1px solid #1e293b; color: white; padding: 5px; border-radius: 4px; font-size: 12px; }
+        body { background: #000; color: #10b981; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; }
+        #map { height: 60vh; width: 100%; background: #000; filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%); }
+        .hud-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 1000; border: 1px solid rgba(16, 185, 129, 0.1); }
+        .crosshair { position: absolute; top: 50%; left: 50%; width: 40px; height: 40px; transform: translate(-50%, -50%); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 50%; }
+        .scanline { width: 100%; height: 4px; background: rgba(16, 185, 129, 0.05); position: absolute; animation: scan 3s linear infinite; }
+        @keyframes scan { from { top: 0; } to { top: 100%; } }
+        .tether-line { stroke: #10b981; stroke-dasharray: 5, 5; animation: dash 1s linear infinite; }
+        @keyframes dash { to { stroke-dashoffset: -10; } }
+        .terminal { height: 120px; background: #050505; border-top: 2px solid #064e3b; padding: 10px; font-size: 10px; overflow-y: auto; color: #10b981; }
     </style>
 </head>
 <body class="flex flex-col h-screen">
 
-    <div id="map"></div>
+    <div class="p-3 bg-black flex justify-between items-center border-b border-emerald-900/30">
+        <div>
+            <h1 class="text-xs font-bold tracking-[0.3em]">RADAR_OS_V16</h1>
+            <p id="dist-label" class="text-[9px] text-emerald-800 uppercase font-black">Target: No Vector Set</p>
+        </div>
+        <button onclick="location.reload()" class="text-[8px] border border-emerald-900 px-2 py-1 rounded">RESET_CORE</button>
+    </div>
 
-    <div class="flex-1 p-4 bg-slate-950 flex flex-col gap-3 overflow-y-auto">
-        
-        <div class="flex gap-2">
-            <button onclick="getAutoLocation()" class="flex-1 bg-green-600 text-black font-black py-4 rounded-lg uppercase text-xs active:bg-green-400">
+    <div class="relative flex-[2]">
+        <div id="map"></div>
+        <div class="hud-overlay">
+            <div class="scanline"></div>
+            <div class="crosshair"></div>
+            <div class="absolute top-2 left-2 text-[8px] opacity-40">SYS_CHECK: OK<br>NET_LINK: LOCAL</div>
+            <div class="absolute bottom-2 right-2 text-[8px] opacity-40">SEC_ALPHA_V16</div>
+        </div>
+    </div>
+
+    <div class="p-4 bg-black flex flex-col gap-3">
+        <div class="grid grid-cols-2 gap-2">
+            <button onclick="getAutoLocation()" class="bg-emerald-600 text-black font-black py-4 rounded uppercase text-xs shadow-[0_0_15px_rgba(16,185,129,0.4)] active:scale-95 transition-all">
                 Satellite Fix
             </button>
-            <button onclick="scanTowers()" class="flex-1 bg-slate-800 text-green-500 font-bold py-4 rounded-lg uppercase text-xs border border-green-900">
-                Scan Towers
+            <button onclick="scanInfrastructure()" class="bg-zinc-900 text-emerald-500 font-bold py-4 rounded uppercase text-xs border border-emerald-900 active:bg-emerald-950">
+                Wide Scan
             </button>
         </div>
 
-        <div class="bg-slate-900/50 p-3 rounded-lg border border-slate-800">
-            <p class="text-[9px] text-slate-500 uppercase mb-2 font-bold tracking-widest text-center">Manual Coordinate Override</p>
-            <div class="flex gap-2">
-                <input id="m-lat" type="number" placeholder="LAT" class="flex-1">
-                <input id="m-lng" type="number" placeholder="LNG" class="flex-1">
-                <button onclick="setManualLocation()" class="bg-blue-600 text-white px-3 py-1 rounded text-[10px] font-bold">SET</button>
-            </div>
-        </div>
-
-        <div id="term" class="terminal shadow-inner">
-            > SYSTEM READY. AWAITING COMMAND.
+        <div id="term" class="terminal shadow-inner border border-emerald-900/20">
+            > SYSTEM READY. AWAITING HANDSHAKE...
         </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map, userMarker, towerLayer;
+        let map, userMarker, towerLayer, tetherLine;
 
         function log(msg) {
             const t = document.getElementById('term');
-            t.innerHTML += `<div>> ${msg}</div>`;
+            t.innerHTML += `<div>> ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})} ${msg}</div>`;
             t.scrollTop = t.scrollHeight;
         }
 
-        // Initialize Map Immediately on Load
         window.onload = () => {
-            map = L.map('map', { zoomControl: false }).setView([9.08, 8.67], 6);
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([9.08, 8.67], 6);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
             towerLayer = L.layerGroup().addTo(map);
-            log("MAP ENGINE ONLINE.");
+            
+            // Allow user to set target by clicking map
+            map.on('click', (e) => setTarget(e.latlng));
+            log("MAP COMMANDER ONLINE.");
         };
 
-        // Option A: Auto GPS
         function getAutoLocation() {
-            log("POLLING SATELLITES...");
+            log("POLLING SECTOR SATELLITES...");
             navigator.geolocation.getCurrentPosition((p) => {
-                updatePosition(p.coords.latitude, p.coords.longitude);
-                log("AUTO-FIX SUCCESS.");
-            }, (e) => {
-                log("AUTO-FIX FAIL: " + e.message);
-                alert("GPS Blocked. Use Manual Override below.");
-            }, { enableHighAccuracy: true });
-        }
-
-        // Option B: Manual Input
-        function setManualLocation() {
-            const lat = parseFloat(document.getElementById('m-lat').value);
-            const lng = parseFloat(document.getElementById('m-lng').value);
-            if (!lat || !lng) return log("INPUT REQUIRED.");
-            updatePosition(lat, lng);
-            log("MANUAL POSITION SET.");
+                const lat = p.coords.latitude;
+                const lng = p.coords.longitude;
+                updatePosition(lat, lng);
+                log(`FIX ACQUIRED: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+            }, (e) => log("GPS ERROR: ACCESS DENIED"), { enableHighAccuracy: true });
         }
 
         function updatePosition(lat, lng) {
             if (userMarker) map.removeLayer(userMarker);
             userMarker = L.circleMarker([lat, lng], {
-                color: '#22c55e', fillOpacity: 1, radius: 8
+                color: '#10b981', fillColor: '#10b981', fillOpacity: 0.8, radius: 8
             }).addTo(map);
             map.setView([lat, lng], 15);
         }
 
-        // Feature: Scan Infrastructure
-        async function scanTowers() {
-            if (!userMarker) return log("SET LOCATION FIRST.");
-            log("QUERYING SECTOR INFRASTRUCTURE...");
+        function setTarget(latlng) {
+            if (!userMarker) return log("SET SELF POSITION FIRST.");
+            if (tetherLine) map.removeLayer(tetherLine);
+            
+            const start = userMarker.getLatLng();
+            tetherLine = L.polyline([start, latlng], { color: '#10b981', weight: 2, className: 'tether-line' }).addTo(map);
+            
+            const dist = (map.distance(start, latlng) / 1000).toFixed(2);
+            document.getElementById('dist-label').innerText = `VECTOR: ${dist} KM`;
+            log(`TARGET SET: ${dist}KM AT VECTOR ${latlng.lat.toFixed(3)}`);
+        }
+
+        async function scanInfrastructure() {
+            if (!userMarker) return log("ACQUIRE FIX FIRST.");
+            log("RUNNING WIDE-SPECTRUM SCAN...");
             const pos = userMarker.getLatLng();
-            const q = `[out:json];node["man_made"~"tower|mast"](around:5000,${pos.lat},${pos.lng});out;`;
+            
+            // Broadened query: Towers, masts, power poles, and telecomm boxes
+            const q = `[out:json][timeout:25];(node["man_made"~"tower|mast|communications_tower"](around:10000,${pos.lat},${pos.lng}););out body;`;
             
             try {
                 const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
                 const data = await res.json();
                 towerLayer.clearLayers();
-                data.elements.forEach(node => {
-                    L.circleMarker([node.lat, node.lon], {
-                        color: '#ef4444', radius: 4, weight: 1
-                    }).addTo(towerLayer);
-                });
-                log(`FOUND ${data.elements.length} NODES IN 5KM.`);
-            } catch (e) {
-                log("DATA FETCH FAILED.");
-            }
+                
+                if(data.elements.length === 0) {
+                    log("SCAN COMPLETE: NO NODES IN 10KM RADIUS.");
+                } else {
+                    data.elements.forEach(node => {
+                        L.circleMarker([node.lat, node.lon], {
+                            color: '#ef4444', radius: 4, weight: 1, fillColor: '#000', fillOpacity: 0.5
+                        }).addTo(towerLayer).bindPopup("Infrastructure Node");
+                    });
+                    log(`SCAN SUCCESS: ${data.elements.length} NODES IDENTIFIED.`);
+                }
+            } catch (e) { log("SCAN ERROR: NETWORK TIMEOUT"); }
         }
     </script>
 </body>
