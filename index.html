@@ -3,96 +3,98 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>RADAR_OS // TACTICAL</title>
     
-    <link rel="manifest" href='data:application/manifest+json,{"name":"RadarOS","short_name":"Radar","start_url":".","display":"standalone","background_color":"#020617","theme_color":"#020617","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/2554/2554930.png","sizes":"512x512","type":"image/png"}]}'>
-
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
-        :root { --glitch-green: #22c55e; }
-        body { background: #020617; color: #94a3b8; font-family: 'Courier New', Courier, monospace; }
-        #map { height: 45vh; width: 100%; filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
-        .radar-line { stroke: var(--glitch-green); stroke-dasharray: 8, 8; animation: dash 1s linear infinite; }
+        body { background: #020617; color: #22c55e; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
+        #map { height: 60vh; width: 100%; filter: invert(100%) hue-rotate(180deg) brightness(80%); opacity: 0.3; transition: opacity 1s; }
+        .map-active { opacity: 1 !important; }
+        .terminal-glow { box-shadow: 0 0 20px rgba(34, 197, 94, 0.2); }
+        .scanline { width: 100%; height: 2px; background: rgba(34, 197, 94, 0.1); position: absolute; animation: scan 4s linear infinite; pointer-events: none; z-index: 10; }
+        @keyframes scan { from { top: 0; } to { top: 100%; } }
+        .radar-line { stroke: #22c55e; stroke-dasharray: 8, 8; animation: dash 1s linear infinite; }
         @keyframes dash { to { stroke-dashoffset: -16; } }
-        .radar-node { animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        #log::-webkit-scrollbar { width: 4px; }
-        #log::-webkit-scrollbar-thumb { background: #166534; }
     </style>
 </head>
-<body class="flex flex-col h-screen overflow-hidden" onclick="resetGhostTimer()" ontouchstart="resetGhostTimer()">
+<body class="flex flex-col h-screen">
 
-    <div class="p-4 border-b border-green-500/20 bg-black/60 flex justify-between items-center z-50">
+    <div id="launcher" class="fixed inset-0 z-[2000] bg-slate-950 flex flex-col items-center justify-center p-8 text-center">
+        <div class="mb-8 terminal-glow p-6 border border-green-500/30 rounded-full">
+            <svg class="w-12 h-12 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <h1 class="text-2xl font-black tracking-[0.3em] mb-2">RADAR_OS</h1>
+        <p class="text-[10px] text-green-800 mb-8 max-w-xs uppercase tracking-widest">System offline. Encrypted connection required for geospatial broadcast.</p>
+        <button onclick="establishLink()" class="w-full max-w-xs bg-green-600 hover:bg-green-500 text-black font-black py-4 rounded shadow-[0_0_30px_rgba(34,197,94,0.4)] transition-all">ESTABLISH LINK</button>
+    </div>
+
+    <div class="p-4 border-b border-green-500/20 bg-black flex justify-between items-center">
         <div>
-            <h1 class="text-green-500 font-bold tracking-[0.2em] text-xs">RADAR_OS.v15</h1>
-            <p id="geo-status" class="text-[10px] text-green-900 font-bold uppercase">GPS: LINKING...</p>
+            <div class="flex items-center gap-2">
+                <div id="status-led" class="w-2 h-2 bg-red-600 rounded-full"></div>
+                <h1 class="text-xs font-bold tracking-widest">SYSTEM_ACTIVE</h1>
+            </div>
+            <p id="geo-status" class="text-[9px] text-green-900 font-bold uppercase mt-1 italic">AWAITING HANDSHAKE...</p>
         </div>
-        <div class="flex gap-2">
-            <button onclick="setTeamCode()" id="team-btn" class="px-2 py-1 border border-blue-900 text-blue-500 text-[9px] rounded uppercase font-bold">TEAM: 0000</button>
-            <button onclick="toggleGhost()" id="ghost-btn" class="px-2 py-1 border border-green-900 text-green-700 text-[9px] rounded uppercase font-bold italic">STEALTH: OFF</button>
+        <div class="flex flex-col items-end">
+            <span id="team-label" class="text-[9px] font-bold text-blue-500 mb-1">TEAM: 0000</span>
+            <div class="flex gap-2">
+                <button onclick="setTeamCode()" class="px-2 py-1 border border-green-900 text-[8px] rounded uppercase">Code</button>
+                <button onclick="toggleGhost()" id="ghost-btn" class="px-2 py-1 border border-green-900 text-[8px] rounded uppercase">Stealth</button>
+            </div>
         </div>
     </div>
 
-    <div id="map" class="relative border-b border-green-500/10">
-        <div class="absolute inset-0 z-[1000] pointer-events-none border-[1px] border-green-500/10 flex items-center justify-center">
-            <div class="w-20 h-20 border border-green-500/5 rounded-full"></div>
-            <div class="absolute w-full h-[1px] bg-green-500/5"></div>
-            <div class="absolute h-full w-[1px] bg-green-500/5"></div>
+    <div class="relative flex-1 bg-black">
+        <div class="scanline"></div>
+        <div id="map"></div>
+        
+        <div class="absolute bottom-0 left-0 right-0 p-4 z-[1001] bg-gradient-to-t from-black via-black/80 to-transparent">
+            <div class="grid grid-cols-2 gap-2 mb-4">
+                <div class="bg-black/80 border border-green-950 p-3">
+                    <p class="text-[8px] text-zinc-600 uppercase">Vector Range</p>
+                    <p id="near-dist" class="text-green-500 font-bold font-mono">---</p>
+                </div>
+                <div class="bg-black/80 border border-green-950 p-3">
+                    <p class="text-[8px] text-zinc-600 uppercase">Nodes</p>
+                    <p id="tower-info" class="text-green-500 font-bold font-mono">0</p>
+                </div>
+            </div>
+            <button id="scan-btn" onclick="manualScan()" class="w-full bg-zinc-900 border border-green-500/50 text-green-500 font-bold py-3 rounded active:bg-green-900/40 uppercase text-xs tracking-[0.2em]">Manual Sector Scan</button>
         </div>
     </div>
 
-    <div class="flex-1 p-4 bg-black flex flex-col gap-3">
-        <div class="flex gap-2">
-            <button onclick="manualScan()" id="scan-btn" class="flex-[2] bg-green-600 text-black font-black py-4 rounded active:bg-green-400 transition-all uppercase tracking-tighter">Initiate Scan</button>
-            <button onclick="mockTest()" class="flex-1 bg-zinc-900 text-zinc-500 text-[9px] rounded uppercase font-bold">Mock Trace</button>
-        </div>
-
-        <div class="grid grid-cols-2 gap-2 text-[10px]">
-            <div class="bg-zinc-950 p-3 border border-green-950 shadow-inner">
-                <p class="text-zinc-600 uppercase">Vector Dist</p>
-                <p id="near-dist" class="text-green-500 text-lg font-bold font-mono">---</p>
-            </div>
-            <div class="bg-zinc-950 p-3 border border-green-950 shadow-inner">
-                <p class="text-zinc-600 uppercase">Signals Mapped</p>
-                <p id="tower-info" class="text-green-500 text-lg font-bold font-mono">0</p>
-            </div>
-        </div>
-
-        <div id="log" class="flex-1 bg-zinc-950 border border-green-900/20 p-3 overflow-y-auto text-[9px] font-mono text-green-700 leading-relaxed shadow-inner">
-            <div>> TERMINAL INITIALIZED...</div>
-            <div>> SYSTEM READY: ENCRYPTED_CHANNEL</div>
-        </div>
+    <div id="log" class="h-16 bg-black border-t border-green-900/20 p-2 overflow-y-auto text-[8px] font-mono text-green-800">
+        > KERNEL LOADED. STANDBY FOR LINK.
     </div>
 
     <script>
-        // --- CONFIGURATION ---
         const SB_URL = "https://eeuyzxggyyxnytxawwaj.supabase.co";
         const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVldXl6eGdneXl4bnl0eGF3d2FqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NzAwMjEsImV4cCI6MjA4OTE0NjAyMX0.ymK6AubePnJvpKUD4kF4OO84tzVB838kobHZRSa4mwo";
         
-        let map, userMarker, supabase, channel;
-        let isGhost = false, tether = null, markers = {}, teamCode = "0000", ghostTimer;
+        let map, userMarker, supabase, channel, teamCode = "0000", isGhost = false, tether = null, markers = {};
 
-        // --- PWA SERVICE WORKER ---
-        if ('serviceWorker' in navigator) {
-            const sw = `const C='radar-v15';self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.addAll(['/']))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
-            const blob = new Blob([sw], {type:'text/javascript'});
-            navigator.serviceWorker.register(URL.createObjectURL(blob));
-        }
-
-        // --- INITIALIZATION ---
-        async function init() {
+        async function establishLink() {
+            document.getElementById('launcher').style.display = 'none';
+            document.getElementById('map').classList.add('map-active');
+            log("INITIATING HANDSHAKE...");
+            
             supabase = window.supabase.createClient(SB_URL, SB_KEY);
             setupMap();
-            connectSignals();
-            startGPS();
-            resetGhostTimer();
-            log(`CONNECTED TO GRID: ${SB_URL.split('//')[1].split('.')[0]}`);
+            
+            // Connect to Realtime FIRST
+            channel = supabase.channel('radar_net');
+            channel.on('presence', {event:'sync'}, handlePresence).subscribe(status => {
+                if(status === 'SUBSCRIBED') {
+                    log("ENCRYPTED CHANNEL SECURED");
+                    document.getElementById('status-led').classList.replace('bg-red-600', 'bg-green-500');
+                    startGPS();
+                }
+            });
         }
 
         function setupMap() {
@@ -100,117 +102,83 @@
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
         }
 
-        function log(m) {
-            const l = document.getElementById('log');
-            l.innerHTML += `<div>> ${new Date().toLocaleTimeString()} ${m}</div>`;
-            l.scrollTop = l.scrollHeight;
-        }
-
-        // --- SCANNING & INFRASTRUCTURE ---
-        async function manualScan() {
-            if(!userMarker) return log("ERR: GPS LOCK REQUIRED");
-            const btn = document.getElementById('scan-btn');
-            btn.disabled = true; btn.innerText = "SCANNING...";
-            log("POLLING SECTOR INFRASTRUCTURE...");
-
-            const p = userMarker.getLatLng();
-            const query = `[out:json][timeout:15];(node["man_made"~"tower|mast|communications"](around:5000,${p.lat},${p.lng}););out body;`;
-            
-            try {
-                const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-                const data = await res.json();
-                
-                data.elements.forEach(node => {
-                    if(markers[node.id]) return;
-                    const icon = L.divIcon({ className: 'radar-node', html: `<div class="w-3 h-3 bg-green-500 rounded-full border border-white shadow-[0_0_8px_green]"></div>`, iconSize:[12,12] });
-                    const m = L.marker([node.lat, node.lon], {icon}).addTo(map);
-                    m.on('click', () => drawTether(node.lat, node.lon));
-                    markers[node.id] = m;
-                });
-
-                document.getElementById('tower-info').innerText = data.elements.length + Object.keys(markers).length;
-                log(`SCAN SUCCESS: ${data.elements.length} INFRA NODES`);
-                if(navigator.vibrate) navigator.vibrate([100,50,100]);
-            } catch(e) { log("ERR: SCAN TIMEOUT"); }
-            
-            btn.disabled = false; btn.innerText = "INITIATE SCAN";
-        }
-
-        // --- GPS & PRESENCE ---
         function startGPS() {
+            log("REQUESTING HARDWARE ACCESS...");
             navigator.geolocation.watchPosition(p => {
                 const { latitude: lat, longitude: lng } = p.coords;
                 if(!userMarker) {
-                    userMarker = L.circleMarker([lat, lng], {color: '#22c55e', fillOpacity:1, radius: 6}).addTo(map);
+                    userMarker = L.circleMarker([lat, lng], {color: '#22c55e', fillOpacity:1, radius: 5}).addTo(map);
                     map.setView([lat, lng], 15);
-                    log("GPS LOCK: ONLINE");
+                    log("GPS LOCK ACQUIRED");
                 } else {
                     userMarker.setLatLng([lat, lng]);
                 }
-                document.getElementById('geo-status').innerText = `FIX: ${lat.toFixed(4)} / ${lng.toFixed(4)}`;
-                if(!isGhost) channel.track({lat, lng, id: 'ALPHA_NODE', team: teamCode});
-                if(tether) drawTether(tether.getLatLngs()[1].lat, tether.getLatLngs()[1].lng);
-            }, e => log("ERR: GPS SIGNAL BLOCKED"), {enableHighAccuracy:true});
+                document.getElementById('geo-status').innerText = `${lat.toFixed(4)} / ${lng.toFixed(4)}`;
+                if(!isGhost) channel.track({lat, lng, id: 'ALPHA', team: teamCode});
+                if(tether) updateTether();
+            }, e => log("ERR: PERMISSION DENIED"), {enableHighAccuracy:true});
         }
 
-        function connectSignals() {
-            channel = supabase.channel('radar_net');
-            channel.on('presence', {event:'sync'}, () => {
-                const state = channel.presenceState();
-                Object.values(state).flat().forEach(s => {
-                    // Only show signals with the same Team Code
-                    if(s.id === 'ALPHA_NODE' || markers[s.id] || s.team !== teamCode) return;
-                    const icon = L.divIcon({ className: 'radar-node', html: `<div class="w-3 h-3 bg-red-600 rounded-full shadow-[0_0_8px_red]"></div>` });
-                    markers[s.id] = L.marker([s.lat, s.lng], {icon}).addTo(map).on('click', () => drawTether(s.lat, s.lng));
-                    log("SECURE SIGNAL DETECTED");
+        function handlePresence() {
+            const state = channel.presenceState();
+            Object.values(state).flat().forEach(s => {
+                if(s.id === 'ALPHA' || markers[s.id] || s.team !== teamCode) return;
+                const icon = L.divIcon({ html: `<div class="w-3 h-3 bg-red-600 rounded-full border border-white shadow-[0_0_10px_red]"></div>`, className: '' });
+                markers[s.id] = L.marker([s.lat, s.lng], {icon}).addTo(map).on('click', () => drawTether(s.lat, s.lng));
+                log("NODE_DETECTION: FOREIGN SIGNAL");
+            });
+        }
+
+        async function manualScan() {
+            if(!userMarker) return log("SCAN FAIL: NO GPS");
+            log("SCANNING INFRASTRUCTURE...");
+            const p = userMarker.getLatLng();
+            const query = `[out:json];node["man_made"~"tower|mast"](around:5000,${p.lat},${p.lng});out;`;
+            try {
+                const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+                const data = await res.json();
+                data.elements.forEach(node => {
+                    if(markers[node.id]) return;
+                    const icon = L.divIcon({ html: `<div class="w-2 h-2 bg-green-500 rounded-full"></div>`, className: '' });
+                    markers[node.id] = L.marker([node.lat, node.lon], {icon}).addTo(map).on('click', () => drawTether(node.lat, node.lon));
                 });
-            }).subscribe();
+                document.getElementById('tower-info').innerText = data.elements.length;
+                log(`SCAN: ${data.elements.length} NODES MAPPED`);
+            } catch(e) { log("SCAN ERROR"); }
         }
 
-        // --- NAVIGATION & TACTICAL ---
         function drawTether(tLat, tLng) {
             if(tether) map.removeLayer(tether);
             const u = userMarker.getLatLng();
-            tether = L.polyline([[u.lat, u.lng], [tLat, tLng]], {className: 'radar-line', weight: 2}).addTo(map);
-            const d = (map.distance(u, [tLat, tLng]) / 1000).toFixed(2);
+            tether = L.polyline([[u.lat, u.lng], [tLat, tLng]], {className: 'radar-line', weight: 1.5}).addTo(map);
+            updateTether();
+        }
+
+        function updateTether() {
+            if(!tether) return;
+            const u = userMarker.getLatLng();
+            const target = tether.getLatLngs()[1];
+            tether.setLatLngs([[u.lat, u.lng], target]);
+            const d = (map.distance(u, target) / 1000).toFixed(2);
             document.getElementById('near-dist').innerText = d + " KM";
-            log(`VECTOR_SET: ${d}KM TO SIGNAL`);
+        }
+
+        function setTeamCode() {
+            const code = prompt("TEAM CODE:", teamCode);
+            if(code) { teamCode = code; document.getElementById('team-label').innerText = `TEAM: ${code}`; log(`TEAM CHANGED: ${code}`); }
         }
 
         function toggleGhost() {
             isGhost = !isGhost;
-            document.getElementById('ghost-btn').innerText = `STEALTH: ${isGhost ? 'ON':'OFF'}`;
-            document.getElementById('ghost-btn').style.color = isGhost ? '#ef4444' : '#15803d';
-            log(isGhost ? "RADIO SILENCE ACTIVATED" : "BROADCAST RESUMED");
+            document.getElementById('ghost-btn').innerText = isGhost ? "Stealth: ON" : "Stealth: OFF";
+            log(isGhost ? "STEALTH MODE" : "SIGNAL BROADCASTING");
         }
 
-        function setTeamCode() {
-            const code = prompt("ENTER 4-DIGIT TEAM SECRET:", teamCode);
-            if(code) {
-                teamCode = code;
-                document.getElementById('team-btn').innerText = `TEAM: ${code}`;
-                log(`NETWORKS SWITCHED: CODE ${code}`);
-            }
+        function log(m) {
+            const l = document.getElementById('log');
+            l.innerHTML += `<div>> ${m}</div>`;
+            l.scrollTop = l.scrollHeight;
         }
-
-        // --- WATCHDOG: AUTO-STEALTH ---
-        function resetGhostTimer() {
-            clearTimeout(ghostTimer);
-            ghostTimer = setTimeout(() => {
-                if (!isGhost) {
-                    toggleGhost();
-                    log("AUTO-STEALTH: RADIO SILENCE ENGAGED");
-                }
-            }, 600000); // 10 Minutes
-        }
-
-        function mockTest() {
-            log("SIMULATING TETHER...");
-            const p = userMarker ? userMarker.getLatLng() : {lat: 6.52, lng: 3.37};
-            drawTether(p.lat + 0.005, p.lng + 0.005);
-        }
-
-        init();
     </script>
 </body>
 </html>
