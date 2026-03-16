@@ -1,9 +1,11 @@
-<!DOCTYPE html>
-<html>
-<body style="background:black; color:white; text-align:center; padding-top:50px;">
-    <h1>JS TEST</h1>
-    <button onclick="alert('IT WORKS!')" style="padding:20px; background:green; color:white;">
-        CLICK ME
-    </button>
-</body>
-</html>
+<button id="test-btn" style="width:100%; padding:20px; background:blue;">
+    ACTIVATE SYSTEM
+</button>
+
+<script>
+    // This listener is "stronger" than onclick
+    document.getElementById('test-btn').addEventListener('click', function() {
+        alert("Button reached the script!");
+        runDiagnostic(); // This calls your main code
+    });
+</script>
