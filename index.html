@@ -3,94 +3,92 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>RADAR_OS // OMNI-GUIDE</title>
+    <title>GHOST_OS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { background: #000; color: #f43f5e; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; }
-        #map { height: 60vh; width: 100vw; background: #000; filter: invert(100%) hue-rotate(280deg) brightness(70%); }
-        .terminal { height: 180px; background: rgba(10, 0, 0, 0.95); border-top: 2px solid #f43f5e; padding: 15px; font-size: 10px; overflow-y: auto; color: #f43f5e; }
-        .hud-btn { @apply flex-1 bg-rose-950 text-rose-400 border border-rose-500/30 py-4 rounded uppercase text-[9px] font-black tracking-[0.2em] active:bg-rose-500 active:text-black; }
+        body { background: #000; color: #10b981; font-family: monospace; margin: 0; overflow: hidden; }
+        #map { height: 70vh; width: 100vw; background: #000; filter: contrast(120%) brightness(80%) grayscale(100%) invert(100%); }
+        .panic-mode { display: none; background: #111; height: 100vh; width: 100vw; padding: 40px; color: #555; text-align: center; }
+        .terminal { height: 150px; background: #050505; border-top: 1px solid #10b981; padding: 10px; font-size: 10px; overflow-y: auto; }
+        .btn-tac { @apply flex-1 bg-zinc-900 border border-emerald-900 text-emerald-500 py-3 rounded uppercase text-[9px] font-bold active:bg-emerald-500 active:text-black; }
     </style>
 </head>
-<body class="flex flex-col h-screen">
+<body>
 
-    <div id="map"></div>
-
-    <div class="p-4 bg-black flex flex-col gap-2 border-t border-rose-900/50">
-        <div class="flex gap-2">
-            <button onclick="getLoc()" class="hud-btn border-rose-500 shadow-[0_0_10px_#f43f5e33]">Sync Position</button>
-            <button onclick="dropIntel()" class="hud-btn">Mark Signal</button>
+    <div id="decoy" class="panic-mode">
+        <h2 class="text-xl mb-4">Calculator</h2>
+        <div class="grid grid-cols-4 gap-2">
+            <div class="bg-zinc-800 p-4">7</div><div class="bg-zinc-800 p-4">8</div><div class="bg-zinc-800 p-4">9</div><div class="bg-orange-600 p-4">/</div>
+            <div class="bg-zinc-800 p-4">4</div><div class="bg-zinc-800 p-4">5</div><div class="bg-zinc-800 p-4">6</div><div class="bg-orange-600 p-4">x</div>
         </div>
-        <button onclick="deepScan()" class="w-full py-2 bg-zinc-900 text-rose-800 text-[8px] border border-rose-950 rounded uppercase">Deep Spectrum Scan (15KM)</button>
+        <button onclick="togglePanic()" class="mt-10 opacity-10 text-[8px]">Exit System</button>
     </div>
 
-    <div class="terminal">
-        <div id="log-content" class="space-y-1">
-            <div class="text-rose-500 font-bold underline mb-2 italic">GUIDE_MODE: INITIALIZED</div>
-            <div>> READY TO MAP THE UNSEEN.</div>
+    <div id="main-app">
+        <div id="map"></div>
+        
+        <div class="p-4 flex flex-col gap-2">
+            <div class="flex gap-2">
+                <button onclick="getFix()" class="btn-tac bg-emerald-900/20">Sync Fix</button>
+                <button onclick="markNode()" class="btn-tac">Mark Signal</button>
+                <button onclick="togglePanic()" class="btn-tac border-red-900 text-red-900">Panic</button>
+            </div>
+            
+            <div class="terminal" id="term">> STANDBY FOR DATA...</div>
         </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map, userMarker, intelLayer;
-
-        function log(msg, important = false) {
-            const l = document.getElementById('log-content');
-            const style = important ? 'text-white font-bold bg-rose-900 px-1' : '';
-            l.innerHTML += `<div class="${style}">> ${msg}</div>`;
-            document.querySelector('.terminal').scrollTop = document.querySelector('.terminal').scrollHeight;
-        }
+        let map, userMarker, intelGroup;
 
         window.onload = () => {
             map = L.map('map', { zoomControl: false, attributionControl: false }).setView([6.5, 3.3], 12);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            intelLayer = L.layerGroup().addTo(map);
-            log("SENSORS ONLINE. WAITING FOR COORDINATES.");
+            intelGroup = L.layerGroup().addTo(map);
+            log("GHOST_OS v1.0 ONLINE.");
         };
 
-        function getLoc() {
-            navigator.geolocation.getCurrentPosition((pos) => {
-                const { latitude: lat, longitude: lng } = pos.coords;
-                if (userMarker) map.removeLayer(userMarker);
-                userMarker = L.circleMarker([lat, lng], { color: '#f43f5e', radius: 6, fillOpacity: 1 }).addTo(map);
-                map.setView([lat, lng], 15);
-                log(`COORD_LOCK: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+        function log(m) {
+            const t = document.getElementById('term');
+            t.innerHTML += `<div>> ${m}</div>`;
+            t.scrollTop = t.scrollHeight;
+        }
+
+        function togglePanic() {
+            const main = document.getElementById('main-app');
+            const decoy = document.getElementById('decoy');
+            if (main.style.display === 'none') {
+                main.style.display = 'block';
+                decoy.style.display = 'none';
+            } else {
+                main.style.display = 'none';
+                decoy.style.display = 'block';
+            }
+        }
+
+        function getFix() {
+            navigator.geolocation.getCurrentPosition(p => {
+                const { latitude: lat, longitude: lng } = p.coords;
+                if (!userMarker) {
+                    userMarker = L.circleMarker([lat, lng], { color: '#10b981', radius: 6, fillOpacity: 1 }).addTo(map);
+                } else { userMarker.setLatLng([lat, lng]); }
+                map.setView([lat, lng], 16);
+                log(`LOCKED: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
             });
         }
 
-        function dropIntel() {
-            if (!userMarker) return log("ERROR: POSITION NOT SYNCED");
+        function markNode() {
+            if (!userMarker) return log("ERROR: NO FIX");
             const pos = userMarker.getLatLng();
-            L.marker([pos.lat, pos.lng], {
-                icon: L.divIcon({html: '<div style="width:10px;height:10px;background:#fff;border-radius:50%;box-shadow:0 0 10px #fff"></div>', className:''})
-            }).addTo(intelLayer).bindPopup("MANUAL_INTEL_NODE");
-            log("INTEL_NODE DROPPED AT CURRENT VECTOR.", true);
-        }
-
-        async function deepScan() {
-            if (!userMarker) return log("SYNC POSITION FIRST.");
-            const pos = userMarker.getLatLng();
-            log("QUERYING DEEP SPECTRUM (15KM)...");
+            L.circleMarker([pos.lat, pos.lng], { color: '#fff', radius: 4 }).addTo(intelGroup);
+            log("SIGNAL NODE MARKED MANUALLY.");
             
-            // Expanded query to include power lines, towers, and exchanges
-            const q = `[out:json];(node["man_made"~"tower|mast|antenna"](around:15000,${pos.lat},${pos.lng});way["power"="line"](around:5000,${pos.lat},${pos.lng}););out body;`;
-            
-            try {
-                const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
-                const data = await res.json();
-                if(data.elements.length === 0) {
-                    log("NO INFRASTRUCTURE DETECTED. SECTOR IS DARK.");
-                } else {
-                    data.elements.forEach(n => {
-                        if(n.type === "node") {
-                            L.circleMarker([n.lat, n.lon], { color: '#f43f5e', radius: 3 }).addTo(intelLayer);
-                        }
-                    });
-                    log(`DEEP SCAN SUCCESS: ${data.elements.length} NODES FOUND.`);
-                }
-            } catch(e) { log("CONNECTION TIMEOUT."); }
+            // Save to phone's local memory automatically
+            const saved = JSON.parse(localStorage.getItem('nodes') || '[]');
+            saved.push({lat: pos.lat, lng: pos.lng, time: Date.now()});
+            localStorage.setItem('nodes', JSON.stringify(saved));
         }
     </script>
 </body>
