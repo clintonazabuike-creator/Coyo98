@@ -3,97 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>RADAR_OS_STABLE</title>
+    <title>RADAR_SOLO_V15</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { background: #020617; color: #4ade80; font-family: monospace; margin: 0; overflow: hidden; }
-        #map { height: 50vh; width: 100%; background: #000; border-bottom: 1px solid #1e293b; display: none; }
-        .console { height: 120px; background: #000; padding: 10px; font-size: 10px; overflow-y: auto; color: #16a34a; border: 1px solid #1e293b; margin: 10px; }
+        body { background: #020617; color: #4ade80; font-family: monospace; margin: 0; }
+        #map { height: 55vh; width: 100%; background: #000; border-bottom: 2px solid #1e293b; }
+        .terminal { height: 100px; background: #000; padding: 10px; font-size: 10px; overflow-y: auto; border: 1px solid #1e293b; margin: 10px; color: #22c55e; }
+        input { background: #0f172a; border: 1px solid #1e293b; color: white; padding: 5px; border-radius: 4px; font-size: 12px; }
     </style>
 </head>
 <body class="flex flex-col h-screen">
 
-    <div class="p-6 text-center">
-        <h1 class="text-xl font-black tracking-widest mb-2 text-white">RADAR_OS v15</h1>
-        <p class="text-[10px] text-slate-500 uppercase mb-6">Secure Geospatial Terminal</p>
-        
-        <button id="activate-btn" class="w-full bg-green-600 text-black font-black py-5 rounded-xl uppercase shadow-lg active:scale-95 transition-all">
-            Initialize Link
-        </button>
-    </div>
-
     <div id="map"></div>
 
-    <div id="terminal" class="console">
-        > KERNEL READY. AWAITING INITIALIZATION...
+    <div class="flex-1 p-4 bg-slate-950 flex flex-col gap-3 overflow-y-auto">
+        
+        <div class="flex gap-2">
+            <button onclick="getAutoLocation()" class="flex-1 bg-green-600 text-black font-black py-4 rounded-lg uppercase text-xs active:bg-green-400">
+                Satellite Fix
+            </button>
+            <button onclick="scanTowers()" class="flex-1 bg-slate-800 text-green-500 font-bold py-4 rounded-lg uppercase text-xs border border-green-900">
+                Scan Towers
+            </button>
+        </div>
+
+        <div class="bg-slate-900/50 p-3 rounded-lg border border-slate-800">
+            <p class="text-[9px] text-slate-500 uppercase mb-2 font-bold tracking-widest text-center">Manual Coordinate Override</p>
+            <div class="flex gap-2">
+                <input id="m-lat" type="number" placeholder="LAT" class="flex-1">
+                <input id="m-lng" type="number" placeholder="LNG" class="flex-1">
+                <button onclick="setManualLocation()" class="bg-blue-600 text-white px-3 py-1 rounded text-[10px] font-bold">SET</button>
+            </div>
+        </div>
+
+        <div id="term" class="terminal shadow-inner">
+            > SYSTEM READY. AWAITING COMMAND.
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
     <script>
-        const SB_URL = "https://eeuyzxggyyxnytxawwaj.supabase.co";
-        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVldXl6eGdneXl4bnl0eGF3d2FqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NzAwMjEsImV4cCI6MjA4OTE0NjAyMX0.ymK6AubePnJvpKUD4kF4OO84tzVB838kobHZRSa4mwo";
+        let map, userMarker, towerLayer;
 
-        let map, userMarker, supabase;
-
-        function log(m) {
-            const t = document.getElementById('terminal');
-            t.innerHTML += `<div>> ${m}</div>`;
+        function log(msg) {
+            const t = document.getElementById('term');
+            t.innerHTML += `<div>> ${msg}</div>`;
             t.scrollTop = t.scrollHeight;
         }
 
-        // The logic starts here when you click the button
-        document.getElementById('activate-btn').addEventListener('click', function() {
-            this.innerText = "CONNECTING...";
-            this.classList.replace('bg-green-600', 'bg-slate-800');
-            this.style.color = "white";
-            
-            log("DIAGNOSTIC STARTED...");
-            startRadar();
-        });
+        // Initialize Map Immediately on Load
+        window.onload = () => {
+            map = L.map('map', { zoomControl: false }).setView([9.08, 8.67], 6);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            towerLayer = L.layerGroup().addTo(map);
+            log("MAP ENGINE ONLINE.");
+        };
 
-        function startRadar() {
-            log("FETCHING GPS DATA...");
-            
-            navigator.geolocation.getCurrentPosition((pos) => {
-                const { latitude: lat, longitude: lng } = pos.coords;
-                log(`FIX ACQUIRED: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-                
-                // Show and Init Map
-                document.getElementById('map').style.display = 'block';
-                if (!map) {
-                    map = L.map('map', { zoomControl: false }).setView([lat, lng], 15);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-                    userMarker = L.circleMarker([lat, lng], {color: '#22c55e', radius: 10, fillOpacity: 0.8}).addTo(map);
-                }
-
-                // Connect to Supabase
-                connectNet(lat, lng);
-
-            }, (err) => {
-                log("GPS ERROR: " + err.message);
-                alert("Please enable Location services!");
+        // Option A: Auto GPS
+        function getAutoLocation() {
+            log("POLLING SATELLITES...");
+            navigator.geolocation.getCurrentPosition((p) => {
+                updatePosition(p.coords.latitude, p.coords.longitude);
+                log("AUTO-FIX SUCCESS.");
+            }, (e) => {
+                log("AUTO-FIX FAIL: " + e.message);
+                alert("GPS Blocked. Use Manual Override below.");
             }, { enableHighAccuracy: true });
         }
 
-        function connectNet(lat, lng) {
-            log("ESTABLISHING SUPABASE HANDSHAKE...");
+        // Option B: Manual Input
+        function setManualLocation() {
+            const lat = parseFloat(document.getElementById('m-lat').value);
+            const lng = parseFloat(document.getElementById('m-lng').value);
+            if (!lat || !lng) return log("INPUT REQUIRED.");
+            updatePosition(lat, lng);
+            log("MANUAL POSITION SET.");
+        }
+
+        function updatePosition(lat, lng) {
+            if (userMarker) map.removeLayer(userMarker);
+            userMarker = L.circleMarker([lat, lng], {
+                color: '#22c55e', fillOpacity: 1, radius: 8
+            }).addTo(map);
+            map.setView([lat, lng], 15);
+        }
+
+        // Feature: Scan Infrastructure
+        async function scanTowers() {
+            if (!userMarker) return log("SET LOCATION FIRST.");
+            log("QUERYING SECTOR INFRASTRUCTURE...");
+            const pos = userMarker.getLatLng();
+            const q = `[out:json];node["man_made"~"tower|mast"](around:5000,${pos.lat},${pos.lng});out;`;
+            
             try {
-                supabase = window.supabase.createClient(SB_URL, SB_KEY);
-                const channel = supabase.channel('radar_v15');
-                
-                channel.subscribe(status => {
-                    log("NET STATUS: " + status);
-                    if(status === 'SUBSCRIBED') {
-                        log("ENCRYPTED CHANNEL SECURED.");
-                        channel.track({lat, lng, id: 'ALFA_NODE'});
-                        document.getElementById('activate-btn').innerText = "SYSTEM ONLINE";
-                    }
+                const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
+                const data = await res.json();
+                towerLayer.clearLayers();
+                data.elements.forEach(node => {
+                    L.circleMarker([node.lat, node.lon], {
+                        color: '#ef4444', radius: 4, weight: 1
+                    }).addTo(towerLayer);
                 });
-            } catch(e) {
-                log("NET CRASH: " + e.message);
+                log(`FOUND ${data.elements.length} NODES IN 5KM.`);
+            } catch (e) {
+                log("DATA FETCH FAILED.");
             }
         }
     </script>
