@@ -1,94 +1,130 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>GHOST TRACKER OS</title>
+    <title>VECTOR-ONE OS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
     <style>
-        body { margin: 0; background: #000; font-family: monospace; color: #0f0; overflow: hidden; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; background: #010; }
-        .ui-panel {
-            position: absolute; bottom: 20px; left: 10px; right: 10px;
-            background: rgba(0, 15, 0, 0.95); border: 2px solid #0f0;
-            padding: 15px; z-index: 100; border-radius: 5px;
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.4);
+        body { margin: 0; background: #000; font-family: 'Courier New', monospace; color: #0f0; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        .hud-top {
+            position: absolute; top: 10px; left: 10px; right: 10px;
+            background: rgba(0,20,0,0.9); border: 1px solid #0f0;
+            padding: 8px; z-index: 100; font-size: 10px; display: flex; justify-content: space-between;
         }
-        .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+        .ui-nav {
+            position: absolute; bottom: 20px; left: 10px; right: 10px;
+            background: rgba(0, 10, 0, 0.95); border: 2px solid #0f0;
+            padding: 15px; z-index: 100; border-radius: 5px; box-shadow: 0 0 20px #0f0;
+        }
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
         button {
-            flex: 1; padding: 15px; background: #030; border: 1px solid #0f0;
-            color: #0f0; font-family: monospace; font-weight: bold; font-size: 14px;
+            padding: 15px; background: #020; border: 1px solid #0f0;
+            color: #0f0; font-family: monospace; font-weight: bold; font-size: 12px;
         }
         button:active { background: #0f0; color: #000; }
-        #status { font-size: 11px; border-bottom: 1px solid #0f0; padding-bottom: 5px; }
+        .glitch-text { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 
 <div id="map"></div>
+<div class="hud-top">
+    <div id="alt">ALT: -- M</div>
+    <div id="dist">TRIP: 0.00 KM</div>
+    <div id="acc">ACC: -- M</div>
+</div>
 
-<div class="ui-panel">
-    <div id="status">SENSORS ONLINE // STANDBY</div>
-    <div class="btn-row">
-        <button onclick="startTracking()" id="t-btn">ENGAGE TRACK</button>
+<div class="ui-nav">
+    <div id="status" class="glitch-text">SYSTEM: STANDBY // READY FOR UPLINK</div>
+    <div class="btn-grid">
+        <button onclick="startMission()" id="start-btn">ENGAGE TRACK</button>
+        <button onclick="dropMarker()">MARK POINT</button>
         <button onclick="guideBack()">GUIDE BACK</button>
+        <button onclick="location.reload()">RESET SYS</button>
     </div>
 </div>
 
 <script>
-    // NEW 2026 STABLE FREE LINK
     const map = new maplibregl.Map({
         container: 'map',
-        style: 'https://tiles.openfreemap.org/styles/liberty', 
-        center: [0, 0],
-        zoom: 2
+        style: 'https://tiles.openfreemap.org/styles/liberty',
+        center: [0, 0], zoom: 2, pitch: 60
     });
 
     let trail = [];
-    let isTracking = false;
+    let markers = [];
+    let totalDist = 0;
 
-    function startTracking() {
-        if (isTracking) return;
-        isTracking = true;
-        document.getElementById('t-btn').innerText = "TRACKING...";
+    function startMission() {
+        document.getElementById('status').innerText = "MISSION ACTIVE // RECORDING PATH";
+        document.getElementById('start-btn').style.background = "#500";
         
         navigator.geolocation.watchPosition((pos) => {
             const pt = [pos.coords.longitude, pos.coords.latitude];
+            
+            // Calculate Distance
+            if (trail.length > 0) {
+                const prev = trail[trail.length - 1];
+                totalDist += getDist(prev[1], prev[0], pt[1], pt[0]);
+            }
+
             trail.push(pt);
             
-            document.getElementById('status').innerText = `LAT: ${pt[1].toFixed(5)} | LNG: ${pt[0].toFixed(5)}`;
+            // Update HUD
+            document.getElementById('alt').innerText = `ALT: ${pos.coords.altitude ? pos.coords.altitude.toFixed(1) : '0'} M`;
+            document.getElementById('dist').innerText = `TRIP: ${totalDist.toFixed(2)} KM`;
+            document.getElementById('acc').innerText = `ACC: ${pos.coords.accuracy.toFixed(0)} M`;
             
-            drawTrail();
-            map.flyTo({ center: pt, zoom: 17 });
-            if(navigator.vibrate) navigator.vibrate(40);
-        }, (err) => {
-            document.getElementById('status').innerText = "ERROR: CHECK GPS PERMISSIONS";
-        }, { enableHighAccuracy: true });
+            drawPath();
+            map.easeTo({ center: pt, zoom: 18, pitch: 60, bearing: map.getBearing() + 0.5 });
+            
+            if(navigator.vibrate) navigator.vibrate(30);
+        }, null, { enableHighAccuracy: true });
     }
 
-    function drawTrail() {
+    function drawPath() {
+        const data = { "type": "Feature", "geometry": { "type": "LineString", "coordinates": trail } };
         if (map.getSource('path')) {
-            map.getSource('path').setData({
-                "type": "Feature", "geometry": { "type": "LineString", "coordinates": trail }
-            });
+            map.getSource('path').setData(data);
         } else {
-            map.addSource('path', { type: 'geojson', data: { "type": "Feature", "geometry": { "type": "LineString", "coordinates": trail } } });
+            map.addSource('path', { type: 'geojson', data: data });
             map.addLayer({
                 id: 'path', type: 'line', source: 'path',
-                paint: { 'line-color': '#0f0', 'line-width': 4 }
+                paint: { 'line-color': '#0f0', 'line-width': 4, 'line-glow-width': 10 }
             });
         }
+    }
+
+    function dropMarker() {
+        if (trail.length === 0) return;
+        const curr = trail[trail.length - 1];
+        new maplibregl.Marker({ color: "#f00" }).setLngLat(curr).addTo(map);
+        if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
     }
 
     function guideBack() {
         if (trail.length < 2) return;
         map.setPaintProperty('path', 'line-color', '#fff');
         map.setPaintProperty('path', 'line-dasharray', [2, 1]);
-        alert("RETURN PATH ACTIVE. FOLLOW THE FLASHING LINE.");
+        
+        // Auto-Zoom to see start and finish
+        const bounds = trail.reduce((acc, coord) => acc.extend(coord), new maplibregl.LngLatBounds(trail[0], trail[0]));
+        map.fitBounds(bounds, { padding: 50 });
+        
+        document.getElementById('status').innerText = "RETURN MODE // FOLLOW GUIDELINE";
     }
-    
-    // Fix for the "Black Map" on some mobile browsers
-    map.on('load', () => { map.resize(); });
+
+    // Haversine formula for distance
+    function getDist(lat1, lon1, lat2, lon2) {
+        const R = 6371; 
+        const dLat = (lat2-lat1) * Math.PI / 180;
+        const dLon = (lon2-lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+        return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    }
 </script>
 </body>
 </html>
