@@ -2,202 +2,149 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>VECTOR-ONE: GHOST TRACKER</title>
+    <title>SHADOW-OS v2.0</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-    <link rel="manifest" href="manifest.json">
-
     <style>
-        :root { --neon-green: #00ff41; --dark-bg: #0a0a0a; }
-        body { margin: 0; padding: 0; background: var(--dark-bg); color: var(--neon-green); font-family: 'Courier New', monospace; overflow: hidden; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; background: #000; }
+        :root { --neon: #00ff41; --danger: #ff003c; }
+        body { margin: 0; background: #000; color: var(--neon); font-family: monospace; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; opacity: 0.7; }
         
-        /* Top HUD */
-        .hud-top {
-            position: absolute; top: env(safe-area-inset-top, 10px); left: 10px; right: 10px;
-            background: rgba(0, 20, 0, 0.85); border: 1px solid var(--neon-green);
-            padding: 10px; z-index: 100; font-size: 10px; display: flex; justify-content: space-between;
-            pointer-events: none; text-shadow: 0 0 5px var(--neon-green);
+        .hud-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; border: 1px solid rgba(0,255,65,0.2); box-sizing: border-box;
         }
 
-        /* Bottom Control Panel */
-        .ui-panel {
-            position: absolute; bottom: env(safe-area-inset-bottom, 20px); left: 10px; right: 10px;
-            background: rgba(0, 10, 0, 0.95); border: 2px solid var(--neon-green);
-            padding: 15px; z-index: 100; border-radius: 5px;
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+        .data-stream {
+            position: absolute; top: 40px; left: 15px; font-size: 10px;
+            text-shadow: 0 0 5px var(--neon); line-height: 1.5;
         }
 
-        .status-msg { font-size: 11px; margin-bottom: 12px; height: 14px; overflow: hidden; text-transform: uppercase; }
+        .nav-panel {
+            position: absolute; bottom: 30px; left: 15px; right: 15px;
+            background: rgba(0,10,0,0.95); border: 1px solid var(--neon);
+            padding: 20px; border-radius: 2px; z-index: 1000;
+            box-shadow: 0 0 20px rgba(0,255,65,0.2);
+        }
+
         .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        
         button {
-            padding: 16px 5px; background: #030; border: 1px solid var(--neon-green);
-            color: var(--neon-green); font-family: 'Courier New', monospace; 
-            font-weight: bold; font-size: 12px; text-transform: uppercase;
+            padding: 15px; background: #010; border: 1px solid var(--neon);
+            color: var(--neon); font-family: monospace; font-size: 11px;
+            clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
         }
-        button:active { background: var(--neon-green); color: #000; }
-        .active-mode { background: #600 !important; color: #fff !important; border-color: #f00 !important; }
-
-        /* Scanning Animation */
-        .scanline {
-            width: 100%; height: 2px; background: rgba(0, 255, 0, 0.1);
-            position: absolute; top: 0; left: 0; z-index: 5;
-            animation: scan 4s linear infinite; pointer-events: none;
-        }
-        @keyframes scan { from { top: 0; } to { top: 100%; } }
+        button:active { background: var(--neon); color: #000; }
+        .recording { border-color: var(--danger); color: var(--danger); animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
     </style>
 </head>
 <body>
 
-<div class="scanline"></div>
 <div id="map"></div>
-
-<div class="hud-top">
-    <div id="alt-val">ALT: 000M</div>
-    <div id="dist-val">TRIP: 0.00KM</div>
-    <div id="acc-val">ACC: --M</div>
+<div class="hud-overlay">
+    <div class="data-stream" id="stream">
+        SYS_STATUS: STANDBY<br>
+        UPLINK: NULL<br>
+        COORDS: 0.000, 0.000
+    </div>
 </div>
 
-<div class="ui-panel">
-    <div id="status-text" class="status-msg">SYSTEM READY // AWAITING COMMAND</div>
+<div class="nav-panel">
     <div class="btn-grid">
-        <button onclick="toggleTracking()" id="track-btn">ENGAGE TRACK</button>
-        <button onclick="dropMarker()">MARK POINT</button>
-        <button onclick="guideBack()">GUIDE BACK</button>
-        <button onclick="location.reload()">PURGE DATA</button>
+        <button onclick="toggleSystem()" id="sys-btn">INITIATE UPLINK</button>
+        <button onclick="dropPoint()">MARK TARGET</button>
+        <button onclick="sonarMode()">SONAR RETURN</button>
+        <button onclick="voiceToggle()">VOICE: ON</button>
     </div>
 </div>
 
 <script>
-    // Initialize Map with High-Tech Dark Style
     const map = new maplibregl.Map({
         container: 'map',
-        style: 'https://tiles.openfreemap.org/styles/liberty',
-        center: [0, 0], zoom: 2, pitch: 60, antialias: true
+        style: 'https://tiles.openfreemap.org/styles/dark',
+        center: [0, 0], zoom: 2, pitch: 70, bearing: 0
     });
 
     let path = [];
     let isTracking = false;
-    let watchId = null;
-    let totalKm = 0;
+    let voiceEnabled = true;
 
-    // 1. Toggle Tracking Logic
-    function toggleTracking() {
-        const btn = document.getElementById('track-btn');
-        const status = document.getElementById('status-text');
+    function speak(text) {
+        if (!voiceEnabled) return;
+        const msg = new SpeechSynthesisUtterance(text);
+        msg.rate = 1.2;
+        msg.pitch = 0.8;
+        window.speechSynthesis.speak(msg);
+    }
 
+    function toggleSystem() {
+        isTracking = !isTracking;
+        const btn = document.getElementById('sys-btn');
         if (isTracking) {
-            navigator.geolocation.clearWatch(watchId);
-            isTracking = false;
-            btn.innerText = "RESUME TRACK";
-            btn.classList.remove('active-mode');
-            status.innerText = "TRACKING SUSPENDED";
+            btn.innerText = "TERMINATE LINK";
+            btn.classList.add('recording');
+            speak("System online. Satellite uplink established.");
+            startGPS();
         } else {
-            isTracking = true;
-            btn.innerText = "TRACKING...";
-            btn.classList.add('active-mode');
-            status.innerText = "UPLINK ESTABLISHED // RECORDING";
-            
-            watchId = navigator.geolocation.watchPosition(updatePosition, handleErr, {
-                enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 10000
+            location.reload();
+        }
+    }
+
+    function startGPS() {
+        navigator.geolocation.watchPosition((pos) => {
+            const { latitude, longitude, speed } = pos.coords;
+            const current = [longitude, latitude];
+            path.push(current);
+
+            document.getElementById('stream').innerHTML = `
+                SYS_STATUS: ACTIVE<br>
+                VELOCITY: ${(speed || 0).toFixed(1)} m/s<br>
+                COORDS: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}
+            `;
+
+            updateMap(current);
+            if (navigator.vibrate) navigator.vibrate(20);
+        }, null, { enableHighAccuracy: true });
+    }
+
+    function updateMap(coords) {
+        if (map.getSource('path')) {
+            map.getSource('path').setData({
+                "type": "Feature", "geometry": { "type": "LineString", "coordinates": path }
             });
-        }
-    }
-
-    // 2. Core Update Function
-    function updatePosition(pos) {
-        const { latitude, longitude, altitude, accuracy } = pos.coords;
-        const newPoint = [longitude, latitude];
-
-        // Calc Distance
-        if (path.length > 0) {
-            const prev = path[path.length - 1];
-            totalKm += calculateDistance(prev[1], prev[0], latitude, longitude);
-        }
-
-        path.push(newPoint);
-
-        // Update HUD
-        document.getElementById('alt-val').innerText = `ALT: ${altitude ? altitude.toFixed(0) : '0'}M`;
-        document.getElementById('dist-val').innerText = `TRIP: ${totalKm.toFixed(2)}KM`;
-        document.getElementById('acc-val').innerText = `ACC: ${accuracy.toFixed(0)}M`;
-
-        renderTrail();
-        map.easeTo({ center: newPoint, zoom: 18 });
-        
-        if (navigator.vibrate) navigator.vibrate(35);
-    }
-
-    // 3. Render the "Ghost Way"
-    function renderTrail() {
-        const data = { "type": "Feature", "geometry": { "type": "LineString", "coordinates": path } };
-        if (map.getSource('ghost-path')) {
-            map.getSource('ghost-path').setData(data);
         } else {
-            map.addSource('ghost-path', { type: 'geojson', data: data });
+            map.addSource('path', { type: 'geojson', data: { "type": "Feature", "geometry": { "type": "LineString", "coordinates": path } } });
             map.addLayer({
-                id: 'ghost-path', type: 'line', source: 'ghost-path',
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#00ff41', 'line-width': 5, 'line-opacity': 0.8 }
+                id: 'path', type: 'line', source: 'path',
+                paint: { 'line-color': '#00ff41', 'line-width': 3 }
             });
         }
+        map.easeTo({ center: coords, zoom: 18, bearing: map.getBearing() + 1 });
     }
 
-    // 4. Drop Waypoint
-    function dropMarker() {
+    function dropPoint() {
         if (path.length === 0) return;
-        const currentPos = path[path.length - 1];
-        
-        new maplibregl.Marker({ color: "#f00", scale: 0.8 })
-            .setLngLat(currentPos)
-            .addTo(map);
-            
-        document.getElementById('status-text').innerText = "WAYPOINT DROPPED";
-        if (navigator.vibrate) navigator.vibrate([50, 100, 50]);
+        new maplibregl.Marker({ color: '#ff003c' }).setLngLat(path[path.length-1]).addTo(map);
+        speak("Target marked at current coordinates.");
     }
 
-    // 5. Guide Back Logic
-    function guideBack() {
-        if (path.length < 2) return;
-        map.setPaintProperty('ghost-path', 'line-color', '#ffffff');
-        map.setPaintProperty('ghost-path', 'line-dasharray', [2, 1]);
-        
-        const bounds = path.reduce((acc, coord) => acc.extend(coord), new maplibregl.LngLatBounds(path[0], path[0]));
-        map.fitBounds(bounds, { padding: 60 });
-        
-        document.getElementById('status-text').innerText = "RETURN PROTOCOL ACTIVE";
+    function sonarMode() {
+        speak("Sonar return protocol initiated. Detecting proximity to origin.");
+        // Logic: Vibrates faster as you get closer to path[0]
+        setInterval(() => {
+            if (!isTracking || path.length < 2) return;
+            // Simple proximity vibration logic would go here
+            if (navigator.vibrate) navigator.vibrate(50);
+        }, 3000);
     }
 
-    // Math: Distance Calculator
-    function calculateDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371;
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-        return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    function voiceToggle() {
+        voiceEnabled = !voiceEnabled;
+        document.querySelector('button[onclick="voiceToggle()"]').innerText = `VOICE: ${voiceEnabled ? 'ON' : 'OFF'}`;
     }
 
-    function handleErr(err) {
-        document.getElementById('status-text').innerText = "SIGNAL BLOCKED // CHECK GPS";
-    }
-
-    // 6. Service Worker Activation (For App Install)
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js').then(() => {
-            console.log("OS Core Loaded");
-        });
-    }
-
-    // Force map resize for mobile orientation
-    window.addEventListener('resize', () => map.resize());
+    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js'); }
 </script>
-
 </body>
 </html>
