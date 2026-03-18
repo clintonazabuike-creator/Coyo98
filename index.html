@@ -1,130 +1,203 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>VECTOR-ONE OS</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta charset="UTF-8">
+    <title>VECTOR-ONE: GHOST TRACKER</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+    <link rel="manifest" href="manifest.json">
+
     <style>
-        body { margin: 0; background: #000; font-family: 'Courier New', monospace; color: #0f0; overflow: hidden; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        :root { --neon-green: #00ff41; --dark-bg: #0a0a0a; }
+        body { margin: 0; padding: 0; background: var(--dark-bg); color: var(--neon-green); font-family: 'Courier New', monospace; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; background: #000; }
+        
+        /* Top HUD */
         .hud-top {
-            position: absolute; top: 10px; left: 10px; right: 10px;
-            background: rgba(0,20,0,0.9); border: 1px solid #0f0;
-            padding: 8px; z-index: 100; font-size: 10px; display: flex; justify-content: space-between;
+            position: absolute; top: env(safe-area-inset-top, 10px); left: 10px; right: 10px;
+            background: rgba(0, 20, 0, 0.85); border: 1px solid var(--neon-green);
+            padding: 10px; z-index: 100; font-size: 10px; display: flex; justify-content: space-between;
+            pointer-events: none; text-shadow: 0 0 5px var(--neon-green);
         }
-        .ui-nav {
-            position: absolute; bottom: 20px; left: 10px; right: 10px;
-            background: rgba(0, 10, 0, 0.95); border: 2px solid #0f0;
-            padding: 15px; z-index: 100; border-radius: 5px; box-shadow: 0 0 20px #0f0;
+
+        /* Bottom Control Panel */
+        .ui-panel {
+            position: absolute; bottom: env(safe-area-inset-bottom, 20px); left: 10px; right: 10px;
+            background: rgba(0, 10, 0, 0.95); border: 2px solid var(--neon-green);
+            padding: 15px; z-index: 100; border-radius: 5px;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
         }
-        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+
+        .status-msg { font-size: 11px; margin-bottom: 12px; height: 14px; overflow: hidden; text-transform: uppercase; }
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        
         button {
-            padding: 15px; background: #020; border: 1px solid #0f0;
-            color: #0f0; font-family: monospace; font-weight: bold; font-size: 12px;
+            padding: 16px 5px; background: #030; border: 1px solid var(--neon-green);
+            color: var(--neon-green); font-family: 'Courier New', monospace; 
+            font-weight: bold; font-size: 12px; text-transform: uppercase;
         }
-        button:active { background: #0f0; color: #000; }
-        .glitch-text { animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        button:active { background: var(--neon-green); color: #000; }
+        .active-mode { background: #600 !important; color: #fff !important; border-color: #f00 !important; }
+
+        /* Scanning Animation */
+        .scanline {
+            width: 100%; height: 2px; background: rgba(0, 255, 0, 0.1);
+            position: absolute; top: 0; left: 0; z-index: 5;
+            animation: scan 4s linear infinite; pointer-events: none;
+        }
+        @keyframes scan { from { top: 0; } to { top: 100%; } }
     </style>
 </head>
 <body>
 
+<div class="scanline"></div>
 <div id="map"></div>
+
 <div class="hud-top">
-    <div id="alt">ALT: -- M</div>
-    <div id="dist">TRIP: 0.00 KM</div>
-    <div id="acc">ACC: -- M</div>
+    <div id="alt-val">ALT: 000M</div>
+    <div id="dist-val">TRIP: 0.00KM</div>
+    <div id="acc-val">ACC: --M</div>
 </div>
 
-<div class="ui-nav">
-    <div id="status" class="glitch-text">SYSTEM: STANDBY // READY FOR UPLINK</div>
+<div class="ui-panel">
+    <div id="status-text" class="status-msg">SYSTEM READY // AWAITING COMMAND</div>
     <div class="btn-grid">
-        <button onclick="startMission()" id="start-btn">ENGAGE TRACK</button>
+        <button onclick="toggleTracking()" id="track-btn">ENGAGE TRACK</button>
         <button onclick="dropMarker()">MARK POINT</button>
         <button onclick="guideBack()">GUIDE BACK</button>
-        <button onclick="location.reload()">RESET SYS</button>
+        <button onclick="location.reload()">PURGE DATA</button>
     </div>
 </div>
 
 <script>
+    // Initialize Map with High-Tech Dark Style
     const map = new maplibregl.Map({
         container: 'map',
         style: 'https://tiles.openfreemap.org/styles/liberty',
-        center: [0, 0], zoom: 2, pitch: 60
+        center: [0, 0], zoom: 2, pitch: 60, antialias: true
     });
 
-    let trail = [];
-    let markers = [];
-    let totalDist = 0;
+    let path = [];
+    let isTracking = false;
+    let watchId = null;
+    let totalKm = 0;
 
-    function startMission() {
-        document.getElementById('status').innerText = "MISSION ACTIVE // RECORDING PATH";
-        document.getElementById('start-btn').style.background = "#500";
-        
-        navigator.geolocation.watchPosition((pos) => {
-            const pt = [pos.coords.longitude, pos.coords.latitude];
-            
-            // Calculate Distance
-            if (trail.length > 0) {
-                const prev = trail[trail.length - 1];
-                totalDist += getDist(prev[1], prev[0], pt[1], pt[0]);
-            }
+    // 1. Toggle Tracking Logic
+    function toggleTracking() {
+        const btn = document.getElementById('track-btn');
+        const status = document.getElementById('status-text');
 
-            trail.push(pt);
-            
-            // Update HUD
-            document.getElementById('alt').innerText = `ALT: ${pos.coords.altitude ? pos.coords.altitude.toFixed(1) : '0'} M`;
-            document.getElementById('dist').innerText = `TRIP: ${totalDist.toFixed(2)} KM`;
-            document.getElementById('acc').innerText = `ACC: ${pos.coords.accuracy.toFixed(0)} M`;
-            
-            drawPath();
-            map.easeTo({ center: pt, zoom: 18, pitch: 60, bearing: map.getBearing() + 0.5 });
-            
-            if(navigator.vibrate) navigator.vibrate(30);
-        }, null, { enableHighAccuracy: true });
-    }
-
-    function drawPath() {
-        const data = { "type": "Feature", "geometry": { "type": "LineString", "coordinates": trail } };
-        if (map.getSource('path')) {
-            map.getSource('path').setData(data);
+        if (isTracking) {
+            navigator.geolocation.clearWatch(watchId);
+            isTracking = false;
+            btn.innerText = "RESUME TRACK";
+            btn.classList.remove('active-mode');
+            status.innerText = "TRACKING SUSPENDED";
         } else {
-            map.addSource('path', { type: 'geojson', data: data });
-            map.addLayer({
-                id: 'path', type: 'line', source: 'path',
-                paint: { 'line-color': '#0f0', 'line-width': 4, 'line-glow-width': 10 }
+            isTracking = true;
+            btn.innerText = "TRACKING...";
+            btn.classList.add('active-mode');
+            status.innerText = "UPLINK ESTABLISHED // RECORDING";
+            
+            watchId = navigator.geolocation.watchPosition(updatePosition, handleErr, {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 10000
             });
         }
     }
 
+    // 2. Core Update Function
+    function updatePosition(pos) {
+        const { latitude, longitude, altitude, accuracy } = pos.coords;
+        const newPoint = [longitude, latitude];
+
+        // Calc Distance
+        if (path.length > 0) {
+            const prev = path[path.length - 1];
+            totalKm += calculateDistance(prev[1], prev[0], latitude, longitude);
+        }
+
+        path.push(newPoint);
+
+        // Update HUD
+        document.getElementById('alt-val').innerText = `ALT: ${altitude ? altitude.toFixed(0) : '0'}M`;
+        document.getElementById('dist-val').innerText = `TRIP: ${totalKm.toFixed(2)}KM`;
+        document.getElementById('acc-val').innerText = `ACC: ${accuracy.toFixed(0)}M`;
+
+        renderTrail();
+        map.easeTo({ center: newPoint, zoom: 18 });
+        
+        if (navigator.vibrate) navigator.vibrate(35);
+    }
+
+    // 3. Render the "Ghost Way"
+    function renderTrail() {
+        const data = { "type": "Feature", "geometry": { "type": "LineString", "coordinates": path } };
+        if (map.getSource('ghost-path')) {
+            map.getSource('ghost-path').setData(data);
+        } else {
+            map.addSource('ghost-path', { type: 'geojson', data: data });
+            map.addLayer({
+                id: 'ghost-path', type: 'line', source: 'ghost-path',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#00ff41', 'line-width': 5, 'line-opacity': 0.8 }
+            });
+        }
+    }
+
+    // 4. Drop Waypoint
     function dropMarker() {
-        if (trail.length === 0) return;
-        const curr = trail[trail.length - 1];
-        new maplibregl.Marker({ color: "#f00" }).setLngLat(curr).addTo(map);
-        if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
+        if (path.length === 0) return;
+        const currentPos = path[path.length - 1];
+        
+        new maplibregl.Marker({ color: "#f00", scale: 0.8 })
+            .setLngLat(currentPos)
+            .addTo(map);
+            
+        document.getElementById('status-text').innerText = "WAYPOINT DROPPED";
+        if (navigator.vibrate) navigator.vibrate([50, 100, 50]);
     }
 
+    // 5. Guide Back Logic
     function guideBack() {
-        if (trail.length < 2) return;
-        map.setPaintProperty('path', 'line-color', '#fff');
-        map.setPaintProperty('path', 'line-dasharray', [2, 1]);
+        if (path.length < 2) return;
+        map.setPaintProperty('ghost-path', 'line-color', '#ffffff');
+        map.setPaintProperty('ghost-path', 'line-dasharray', [2, 1]);
         
-        // Auto-Zoom to see start and finish
-        const bounds = trail.reduce((acc, coord) => acc.extend(coord), new maplibregl.LngLatBounds(trail[0], trail[0]));
-        map.fitBounds(bounds, { padding: 50 });
+        const bounds = path.reduce((acc, coord) => acc.extend(coord), new maplibregl.LngLatBounds(path[0], path[0]));
+        map.fitBounds(bounds, { padding: 60 });
         
-        document.getElementById('status').innerText = "RETURN MODE // FOLLOW GUIDELINE";
+        document.getElementById('status-text').innerText = "RETURN PROTOCOL ACTIVE";
     }
 
-    // Haversine formula for distance
-    function getDist(lat1, lon1, lat2, lon2) {
-        const R = 6371; 
-        const dLat = (lat2-lat1) * Math.PI / 180;
-        const dLon = (lon2-lon1) * Math.PI / 180;
+    // Math: Distance Calculator
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
         const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
         return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
     }
+
+    function handleErr(err) {
+        document.getElementById('status-text').innerText = "SIGNAL BLOCKED // CHECK GPS";
+    }
+
+    // 6. Service Worker Activation (For App Install)
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').then(() => {
+            console.log("OS Core Loaded");
+        });
+    }
+
+    // Force map resize for mobile orientation
+    window.addEventListener('resize', () => map.resize());
 </script>
+
 </body>
 </html>
