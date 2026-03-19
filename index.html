@@ -2,60 +2,77 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SHADOW-OS v2.0</title>
+    <title>SIGINT-SENTINEL OS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+    <link rel="manifest" href="manifest.json">
     <style>
-        :root { --neon: #00ff41; --danger: #ff003c; }
-        body { margin: 0; background: #000; color: var(--neon); font-family: monospace; overflow: hidden; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; opacity: 0.7; }
+        :root { --neon: #00ff41; --intel: #00d4ff; --bg: #050505; }
+        body { margin: 0; background: var(--bg); color: var(--neon); font-family: 'Courier New', monospace; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; opacity: 0.5; filter: brightness(0.7) contrast(1.2); }
         
-        .hud-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; border: 1px solid rgba(0,255,65,0.2); box-sizing: border-box;
+        /* Tactical HUD */
+        .hud-top {
+            position: absolute; top: 40px; left: 15px; right: 15px;
+            background: rgba(0,20,0,0.8); border-left: 4px solid var(--neon);
+            padding: 10px; z-index: 10; font-size: 11px; text-shadow: 0 0 5px var(--neon);
         }
 
-        .data-stream {
-            position: absolute; top: 40px; left: 15px; font-size: 10px;
-            text-shadow: 0 0 5px var(--neon); line-height: 1.5;
+        .signal-log {
+            position: absolute; top: 120px; left: 15px; width: 180px;
+            height: 150px; overflow: hidden; font-size: 9px; color: var(--intel);
+            pointer-events: none; mask-image: linear-gradient(to bottom, black 70%, transparent);
         }
 
-        .nav-panel {
+        .control-deck {
             position: absolute; bottom: 30px; left: 15px; right: 15px;
-            background: rgba(0,10,0,0.95); border: 1px solid var(--neon);
-            padding: 20px; border-radius: 2px; z-index: 1000;
-            box-shadow: 0 0 20px rgba(0,255,65,0.2);
+            background: rgba(0,0,0,0.9); border: 1px solid var(--neon);
+            padding: 15px; z-index: 100; box-shadow: 0 0 25px rgba(0,255,65,0.15);
         }
 
-        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         button {
-            padding: 15px; background: #010; border: 1px solid var(--neon);
-            color: var(--neon); font-family: monospace; font-size: 11px;
-            clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
+            padding: 16px; background: #010; border: 1px solid var(--neon);
+            color: var(--neon); font-family: monospace; font-weight: bold; font-size: 11px;
+            text-transform: uppercase; transition: 0.2s;
         }
         button:active { background: var(--neon); color: #000; }
-        .recording { border-color: var(--danger); color: var(--danger); animation: blink 1s infinite; }
-        @keyframes blink { 50% { opacity: 0.5; } }
+        .scanning-active { border-color: var(--intel); box-shadow: 0 0 15px var(--intel); }
+        
+        /* Visual Pulse */
+        .pulse-circle {
+            position: absolute; top: 50%; left: 50%; width: 200px; height: 200px;
+            border: 2px solid var(--neon); border-radius: 50%;
+            transform: translate(-50%, -50%) scale(0); opacity: 0;
+            pointer-events: none; z-index: 5;
+        }
+        .anim-pulse { animation: ripple 2s ease-out infinite; }
+        @keyframes ripple { 
+            0% { transform: translate(-50%, -50%) scale(0); opacity: 0.8; }
+            100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+        }
     </style>
 </head>
 <body>
 
 <div id="map"></div>
-<div class="hud-overlay">
-    <div class="data-stream" id="stream">
-        SYS_STATUS: STANDBY<br>
-        UPLINK: NULL<br>
-        COORDS: 0.000, 0.000
-    </div>
+<div class="pulse-circle" id="pulse"></div>
+
+<div class="hud-top">
+    [ SYSTEM: <span id="sys-mode">IDLE</span> ]<br>
+    [ COORDS: <span id="coord-str">0.0, 0.0</span> ]<br>
+    [ SPECTRUM: <span id="spec-val">PASSIVE</span> ]
 </div>
 
-<div class="nav-panel">
+<div class="signal-log" id="log"></div>
+
+<div class="control-deck">
     <div class="btn-grid">
-        <button onclick="toggleSystem()" id="sys-btn">INITIATE UPLINK</button>
-        <button onclick="dropPoint()">MARK TARGET</button>
-        <button onclick="sonarMode()">SONAR RETURN</button>
-        <button onclick="voiceToggle()">VOICE: ON</button>
+        <button onclick="startSIGINT()" id="main-btn">INITIATE SCAN</button>
+        <button onclick="markStatic()">MARK TARGET</button>
+        <button onclick="toggleVoice()" id="v-btn">VOICE: ON</button>
+        <button onclick="guideBack()">GUIDE BACK</button>
     </div>
 </div>
 
@@ -63,88 +80,89 @@
     const map = new maplibregl.Map({
         container: 'map',
         style: 'https://tiles.openfreemap.org/styles/dark',
-        center: [0, 0], zoom: 2, pitch: 70, bearing: 0
+        center: [0, 0], zoom: 2, pitch: 65, bearing: 0
     });
 
     let path = [];
-    let isTracking = false;
-    let voiceEnabled = true;
+    let isActive = false;
+    let voice = true;
 
-    function speak(text) {
-        if (!voiceEnabled) return;
-        const msg = new SpeechSynthesisUtterance(text);
-        msg.rate = 1.2;
-        msg.pitch = 0.8;
-        window.speechSynthesis.speak(msg);
+    function speak(t) {
+        if(!voice) return;
+        const s = new SpeechSynthesisUtterance(t);
+        s.rate = 1.2; s.pitch = 0.7; window.speechSynthesis.speak(s);
     }
 
-    function toggleSystem() {
-        isTracking = !isTracking;
-        const btn = document.getElementById('sys-btn');
-        if (isTracking) {
-            btn.innerText = "TERMINATE LINK";
-            btn.classList.add('recording');
-            speak("System online. Satellite uplink established.");
-            startGPS();
-        } else {
-            location.reload();
-        }
-    }
+    function startSIGINT() {
+        if(isActive) { location.reload(); return; }
+        isActive = true;
+        document.getElementById('sys-mode').innerText = "SIGINT ACTIVE";
+        document.getElementById('main-btn').innerText = "TERMINATE";
+        document.getElementById('pulse').classList.add('anim-pulse');
+        speak("Signal awareness online. Mapping local spectrum.");
 
-    function startGPS() {
         navigator.geolocation.watchPosition((pos) => {
             const { latitude, longitude, speed } = pos.coords;
-            const current = [longitude, latitude];
-            path.push(current);
-
-            document.getElementById('stream').innerHTML = `
-                SYS_STATUS: ACTIVE<br>
-                VELOCITY: ${(speed || 0).toFixed(1)} m/s<br>
-                COORDS: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}
-            `;
-
-            updateMap(current);
-            if (navigator.vibrate) navigator.vibrate(20);
+            const pt = [longitude, latitude];
+            path.push(pt);
+            
+            document.getElementById('coord-str').innerText = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+            
+            renderTrail();
+            simulateDetection(pt); // Deep sensor simulation
+            map.flyTo({ center: pt, zoom: 18, bearing: map.getBearing() + 0.5 });
+            
+            if(navigator.vibrate) navigator.vibrate(30);
         }, null, { enableHighAccuracy: true });
     }
 
-    function updateMap(coords) {
-        if (map.getSource('path')) {
-            map.getSource('path').setData({
-                "type": "Feature", "geometry": { "type": "LineString", "coordinates": path }
-            });
+    function simulateDetection(coords) {
+        // Identifying Car Nodes, Retail IoT, and Power Systems
+        const signals = ["VEHICLE_NODE_5G", "IOT_RETAIL_LINK", "BLE_POWER_PACK", "INFOTAINMENT_SYS"];
+        const found = signals[Math.floor(Math.random() * signals.length)];
+        
+        const logEntry = document.createElement('div');
+        logEntry.innerText = `>> DETECTED: ${found}`;
+        const log = document.getElementById('log');
+        log.prepend(logEntry);
+
+        // Map visual for the signal node
+        new maplibregl.Marker({ color: found.includes('VEHICLE') ? '#ff00ff' : '#00d4ff', scale: 0.6 })
+            .setLngLat([coords[0] + (Math.random()-0.5)*0.0008, coords[1] + (Math.random()-0.5)*0.0008])
+            .addTo(map);
+    }
+
+    function renderTrail() {
+        if (map.getSource('p')) {
+            map.getSource('p').setData({"type": "Feature", "geometry": {"type": "LineString", "coordinates": path}});
         } else {
-            map.addSource('path', { type: 'geojson', data: { "type": "Feature", "geometry": { "type": "LineString", "coordinates": path } } });
-            map.addLayer({
-                id: 'path', type: 'line', source: 'path',
-                paint: { 'line-color': '#00ff41', 'line-width': 3 }
-            });
+            map.addSource('p', { type: 'geojson', data: {"type": "Feature", "geometry": {"type": "LineString", "coordinates": path}} });
+            map.addLayer({ id: 'p', type: 'line', source: 'p', paint: { 'line-color': '#00ff41', 'line-width': 3 } });
         }
-        map.easeTo({ center: coords, zoom: 18, bearing: map.getBearing() + 1 });
     }
 
-    function dropPoint() {
-        if (path.length === 0) return;
-        new maplibregl.Marker({ color: '#ff003c' }).setLngLat(path[path.length-1]).addTo(map);
-        speak("Target marked at current coordinates.");
+    function toggleVoice() {
+        voice = !voice;
+        document.getElementById('v-btn').innerText = `VOICE: ${voice ? 'ON' : 'OFF'}`;
     }
 
-    function sonarMode() {
-        speak("Sonar return protocol initiated. Detecting proximity to origin.");
-        // Logic: Vibrates faster as you get closer to path[0]
-        setInterval(() => {
-            if (!isTracking || path.length < 2) return;
-            // Simple proximity vibration logic would go here
-            if (navigator.vibrate) navigator.vibrate(50);
-        }, 3000);
+    function markStatic() {
+        if(path.length === 0) return;
+        new maplibregl.Marker({ color: '#f00' }).setLngLat(path[path.length-1]).addTo(map);
+        speak("Target point locked.");
     }
 
-    function voiceToggle() {
-        voiceEnabled = !voiceEnabled;
-        document.querySelector('button[onclick="voiceToggle()"]').innerText = `VOICE: ${voiceEnabled ? 'ON' : 'OFF'}`;
+    function guideBack() {
+        if(path.length < 2) return;
+        map.setPaintProperty('p', 'line-color', '#fff');
+        map.setPaintProperty('p', 'line-dasharray', [2, 1]);
+        speak("Returning to origin. Follow white vector.");
     }
 
-    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js'); }
+    // SERVICE WORKER & INSTALL POWER
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js');
+    }
 </script>
 </body>
 </html>
