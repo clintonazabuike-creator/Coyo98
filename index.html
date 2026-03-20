@@ -2,178 +2,183 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>COMMANDER-OS: SIGNAL TRACKER</title>
+    <title>COMMANDER-OS: SIGINT</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
     <link rel="manifest" href="manifest.json">
     <style>
-        :root { --main: #00ff41; --warn: #ffae00; --dead: #ff3c3c; --bg: #080808; }
-        body { margin: 0; background: var(--bg); color: var(--main); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; opacity: 0.4; }
+        :root { --neon: #00ff41; --intel: #00d4ff; --bg: #050505; }
+        body { margin: 0; background: var(--bg); color: var(--neon); font-family: monospace; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; opacity: 0.5; background: #000; }
         
         /* Tactical Header */
-        .header {
-            position: absolute; top: 45px; left: 15px; right: 15px;
-            display: flex; justify-content: space-between; align-items: center;
-            background: rgba(0,0,0,0.8); border: 1px solid var(--main);
-            padding: 10px; z-index: 100; font-size: 12px;
+        .hud-header {
+            position: absolute; top: 40px; left: 10px; right: 10px;
+            background: rgba(0,20,0,0.9); border: 1px solid var(--neon);
+            padding: 10px; z-index: 100; font-size: 11px; display: flex; justify-content: space-between;
         }
 
-        /* Signal Log Window */
-        .log-window {
-            position: absolute; top: 110px; left: 15px; width: 220px;
-            height: 120px; background: rgba(0,0,0,0.6); border-left: 2px solid var(--main);
-            padding: 5px; font-size: 10px; overflow-y: auto; z-index: 90;
+        /* Signal Log */
+        .log-panel {
+            position: absolute; top: 100px; left: 10px; width: 200px;
+            height: 150px; font-size: 10px; color: var(--intel);
+            overflow: hidden; pointer-events: none; text-shadow: 0 0 5px #000;
         }
 
-        /* The Control Grid */
+        /* Control Grid */
         .control-grid {
-            position: absolute; bottom: 30px; left: 15px; right: 15px;
-            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-            z-index: 1000; background: rgba(0,0,0,0.9); padding: 15px;
-            border-top: 2px solid var(--main);
+            position: absolute; bottom: 30px; left: 10px; right: 10px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+            background: rgba(0,0,0,0.95); padding: 15px; border-top: 2px solid var(--neon); z-index: 1000;
         }
 
         button {
-            padding: 18px; background: #111; border: 1px solid var(--main);
-            color: var(--main); font-weight: bold; font-family: monospace;
-            cursor: pointer; transition: 0.3s;
+            padding: 18px 5px; background: #010; border: 1px solid var(--neon);
+            color: var(--neon); font-family: monospace; font-weight: bold; font-size: 11px;
         }
-        button.active { background: var(--main); color: #000; }
-        button.danger { border-color: var(--dead); color: var(--dead); }
-        button:disabled { opacity: 0.3; border-color: #444; color: #444; }
+        button.active { background: var(--neon); color: #000; box-shadow: 0 0 15px var(--neon); }
+        button:disabled { opacity: 0.2; border-color: #333; }
 
-        .led { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
-        .led-on { background: var(--main); box-shadow: 0 0 10px var(--main); }
+        /* Scanner Pulse Effect */
+        .radar-pulse {
+            position: absolute; top: 50%; left: 50%; width: 300px; height: 300px;
+            border: 1px solid var(--intel); border-radius: 50%;
+            transform: translate(-50%, -50%) scale(0); opacity: 0;
+            pointer-events: none; z-index: 5;
+        }
+        .anim-radar { animation: radar-sweep 2s linear infinite; }
+        @keyframes radar-sweep {
+            0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+        }
     </style>
 </head>
 <body>
 
 <div id="map"></div>
+<div id="radar" class="radar-pulse"></div>
 
-<div class="header">
-    <div><span id="led-gps" class="led"></span> GPS: <span id="gps-stat">OFF</span></div>
-    <div><span id="led-scan" class="led"></span> SCAN: <span id="scan-stat">IDLE</span></div>
+<div class="hud-header">
+    <div>GPS: <span id="gps-stat">STANDBY</span></div>
+    <div>NODES: <span id="node-count">0</span></div>
 </div>
 
-<div class="log-window" id="log">>> SYSTEM READY. STANDBY FOR COMMAND.</div>
+<div class="log-panel" id="log"></div>
 
 <div class="control-grid">
-    <button onclick="toggleGPS()" id="btn-gps">ACTIVATE GPS</button>
-    <button onclick="toggleScan()" id="btn-scan" disabled>SCAN DEVICES</button>
-    <button onclick="dropManualMarker()">MARK TARGET</button>
-    <button onclick="toggleGuide()" id="btn-guide">GUIDE BACK</button>
-    <button onclick="clearSystem()" class="danger" style="grid-column: span 2;">PURGE ALL DATA</button>
+    <button onclick="initSystem()" id="btn-gps">ACTIVATE GPS</button>
+    <button onclick="toggleScanner()" id="btn-scan" disabled>MANUAL SCAN</button>
+    <button onclick="dropTarget()">MARK POINT</button>
+    <button onclick="guideProtocol()">GUIDE BACK</button>
+    <button onclick="location.reload()" style="grid-column: span 2; border-color: #ff3c3c; color: #ff3c3c;">EMERGENCY PURGE</button>
 </div>
 
 <script>
+    // 1. Map Fixer Configuration
     const map = new maplibregl.Map({
         container: 'map',
-        style: 'https://tiles.openfreemap.org/styles/dark',
-        center: [0, 0], zoom: 2, pitch: 45
+        style: 'https://tiles.openfreemap.org/styles/liberty', // Changed to Liberty for better loading
+        center: [0, 0], zoom: 1, pitch: 45, antialias: true
     });
 
     let path = [];
     let watchId = null;
-    let scanInterval = null;
+    let isScanning = false;
     let isGuiding = false;
 
-    function log(msg) {
-        const div = document.getElementById('log');
-        div.innerHTML = `<div>> ${msg}</div>` + div.innerHTML;
+    // Force Map Refresh (Fixes Black Screen)
+    map.on('load', () => { 
+        console.log("Map Tiles Loaded");
+        map.resize(); 
+    });
+
+    function logMsg(m) {
+        const l = document.getElementById('log');
+        l.innerHTML = `<div>> ${m}</div>` + l.innerHTML;
     }
 
-    // 1. MANUAL GPS TOGGLE
-    function toggleGPS() {
+    // 2. Manual System Init
+    function initSystem() {
         const btn = document.getElementById('btn-gps');
-        const scanBtn = document.getElementById('btn-scan');
-        
         if (watchId) {
             navigator.geolocation.clearWatch(watchId);
             watchId = null;
             btn.innerText = "ACTIVATE GPS";
             btn.classList.remove('active');
-            scanBtn.disabled = true;
-            document.getElementById('led-gps').classList.remove('led-on');
-            log("GPS TERMINATED.");
+            document.getElementById('gps-stat').innerText = "OFFLINE";
+            document.getElementById('btn-scan').disabled = true;
         } else {
             btn.innerText = "GPS ACTIVE";
             btn.classList.add('active');
-            scanBtn.disabled = false;
-            document.getElementById('led-gps').classList.add('led-on');
-            log("ESTABLISHING SATELLITE LINK...");
+            document.getElementById('gps-stat').innerText = "LINKED";
+            document.getElementById('btn-scan').disabled = false;
             
-            watchId = navigator.geolocation.watchPosition(updatePos, null, {enableHighAccuracy:true});
+            // Force Map to wake up
+            map.resize();
+
+            watchId = navigator.geolocation.watchPosition((pos) => {
+                const pt = [pos.coords.longitude, pos.coords.latitude];
+                path.push(pt);
+                updateTrail();
+                map.flyTo({ center: pt, zoom: 17, speed: 1.5 });
+            }, (err) => alert("GPS Denied"), { enableHighAccuracy: true });
         }
     }
 
-    function updatePos(pos) {
-        const pt = [pos.coords.longitude, pos.coords.latitude];
-        path.push(pt);
-        renderTrail();
-        map.flyTo({ center: pt, zoom: 17 });
-        document.getElementById('gps-stat').innerText = "FIXED";
-    }
-
-    // 2. MANUAL SCAN TOGGLE
-    function toggleScan() {
+    // 3. Manual Scanner (The "Amaze" Part)
+    function toggleScanner() {
+        isScanning = !isScanning;
         const btn = document.getElementById('btn-scan');
-        if (scanInterval) {
-            clearInterval(scanInterval);
-            scanInterval = null;
-            btn.innerText = "SCAN DEVICES";
-            btn.classList.remove('active');
-            document.getElementById('led-scan').classList.remove('led-on');
-            log("SCANNER DEACTIVATED.");
-        } else {
-            btn.innerText = "SCANNING...";
+        const radar = document.getElementById('radar');
+        
+        if (isScanning) {
             btn.classList.add('active');
-            document.getElementById('led-scan').classList.add('led-on');
-            log("SCANNING FOR MOBILE NODES...");
+            radar.classList.add('anim-radar');
+            logMsg("SCANNING SPECTRUM...");
             
-            scanInterval = setInterval(() => {
-                const devices = ["iPhone (Personal)", "Android Node", "iPad/Tablet", "Mobile Hotspot", "Smart Watch"];
-                const found = devices[Math.floor(Math.random() * devices.length)];
-                log(`FOUND: ${found}`);
+            // Simulated Phone/Device Discovery
+            this.scanTimer = setInterval(() => {
+                const devices = ["iOS Node", "Android Mobile", "Wearable BLE", "Hidden Hotspot"];
+                const dev = devices[Math.floor(Math.random() * devices.length)];
+                logMsg(`FOUND: ${dev}`);
                 
-                // Drop marker at current loc
-                if(path.length > 0) {
-                    new maplibregl.Marker({ color: '#00d4ff', scale: 0.5 })
-                        .setLngLat(path[path.length-1])
+                if (path.length > 0) {
+                    new maplibregl.Marker({ color: '#00d4ff', scale: 0.6 })
+                        .setLngLat([path[path.length-1][0] + (Math.random()-0.5)*0.001, path[path.length-1][1] + (Math.random()-0.5)*0.001])
                         .addTo(map);
                 }
-            }, 3000);
+                document.getElementById('node-count').innerText = document.querySelectorAll('#log div').length;
+            }, 4000);
+        } else {
+            btn.classList.remove('active');
+            radar.classList.remove('anim-radar');
+            clearInterval(this.scanTimer);
+            logMsg("SCANNER STANDBY.");
         }
     }
 
-    function renderTrail() {
+    function updateTrail() {
         if (map.getSource('p')) {
             map.getSource('p').setData({"type": "Feature", "geometry": {"type": "LineString", "coordinates": path}});
         } else {
             map.addSource('p', { type: 'geojson', data: {"type": "Feature", "geometry": {"type": "LineString", "coordinates": path}} });
-            map.addLayer({ id: 'p', type: 'line', source: 'p', paint: { 'line-color': '#00ff41', 'line-width': 3 } });
+            map.addLayer({ id: 'p', type: 'line', source: 'p', paint: { 'line-color': '#00ff41', 'line-width': 4 } });
         }
     }
 
-    function dropManualMarker() {
-        if(path.length === 0) return alert("No GPS fix!");
+    function dropTarget() {
+        if (path.length === 0) return;
         new maplibregl.Marker({ color: '#ff3c3c' }).setLngLat(path[path.length-1]).addTo(map);
-        log("MANUAL WAYPOINT STORED.");
+        logMsg("TARGET MARKED.");
     }
 
-    function toggleGuide() {
-        const btn = document.getElementById('btn-guide');
-        if(path.length < 2) return;
+    function guideProtocol() {
+        if (path.length < 2) return;
         isGuiding = !isGuiding;
-        btn.classList.toggle('active');
-        map.setPaintProperty('p', 'line-color', isGuiding ? '#ffffff' : '#00ff41');
+        map.setPaintProperty('p', 'line-color', isGuiding ? '#fff' : '#00ff41');
         map.setPaintProperty('p', 'line-dasharray', isGuiding ? [2, 1] : [1, 0]);
-        log(isGuiding ? "RETURN PROTOCOL ENGAGED." : "MAPPING MODE.");
-    }
-
-    function clearSystem() {
-        if(confirm("WIPE ALL DATA?")) location.reload();
+        logMsg(isGuiding ? "RETURN MODE ENGAGED" : "TRACKING MODE");
     }
 
     if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js'); }
