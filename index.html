@@ -2,134 +2,149 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SIGINT-SENTINEL OS</title>
+    <title>COMMANDER-OS: SIGNAL TRACKER</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
     <link rel="manifest" href="manifest.json">
     <style>
-        :root { --neon: #00ff41; --intel: #00d4ff; --bg: #050505; }
-        body { margin: 0; background: var(--bg); color: var(--neon); font-family: 'Courier New', monospace; overflow: hidden; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; opacity: 0.5; filter: brightness(0.7) contrast(1.2); }
+        :root { --main: #00ff41; --warn: #ffae00; --dead: #ff3c3c; --bg: #080808; }
+        body { margin: 0; background: var(--bg); color: var(--main); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; opacity: 0.4; }
         
-        /* Tactical HUD */
-        .hud-top {
-            position: absolute; top: 40px; left: 15px; right: 15px;
-            background: rgba(0,20,0,0.8); border-left: 4px solid var(--neon);
-            padding: 10px; z-index: 10; font-size: 11px; text-shadow: 0 0 5px var(--neon);
+        /* Tactical Header */
+        .header {
+            position: absolute; top: 45px; left: 15px; right: 15px;
+            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(0,0,0,0.8); border: 1px solid var(--main);
+            padding: 10px; z-index: 100; font-size: 12px;
         }
 
-        .signal-log {
-            position: absolute; top: 120px; left: 15px; width: 180px;
-            height: 150px; overflow: hidden; font-size: 9px; color: var(--intel);
-            pointer-events: none; mask-image: linear-gradient(to bottom, black 70%, transparent);
+        /* Signal Log Window */
+        .log-window {
+            position: absolute; top: 110px; left: 15px; width: 220px;
+            height: 120px; background: rgba(0,0,0,0.6); border-left: 2px solid var(--main);
+            padding: 5px; font-size: 10px; overflow-y: auto; z-index: 90;
         }
 
-        .control-deck {
+        /* The Control Grid */
+        .control-grid {
             position: absolute; bottom: 30px; left: 15px; right: 15px;
-            background: rgba(0,0,0,0.9); border: 1px solid var(--neon);
-            padding: 15px; z-index: 100; box-shadow: 0 0 25px rgba(0,255,65,0.15);
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+            z-index: 1000; background: rgba(0,0,0,0.9); padding: 15px;
+            border-top: 2px solid var(--main);
         }
 
-        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         button {
-            padding: 16px; background: #010; border: 1px solid var(--neon);
-            color: var(--neon); font-family: monospace; font-weight: bold; font-size: 11px;
-            text-transform: uppercase; transition: 0.2s;
+            padding: 18px; background: #111; border: 1px solid var(--main);
+            color: var(--main); font-weight: bold; font-family: monospace;
+            cursor: pointer; transition: 0.3s;
         }
-        button:active { background: var(--neon); color: #000; }
-        .scanning-active { border-color: var(--intel); box-shadow: 0 0 15px var(--intel); }
-        
-        /* Visual Pulse */
-        .pulse-circle {
-            position: absolute; top: 50%; left: 50%; width: 200px; height: 200px;
-            border: 2px solid var(--neon); border-radius: 50%;
-            transform: translate(-50%, -50%) scale(0); opacity: 0;
-            pointer-events: none; z-index: 5;
-        }
-        .anim-pulse { animation: ripple 2s ease-out infinite; }
-        @keyframes ripple { 
-            0% { transform: translate(-50%, -50%) scale(0); opacity: 0.8; }
-            100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
-        }
+        button.active { background: var(--main); color: #000; }
+        button.danger { border-color: var(--dead); color: var(--dead); }
+        button:disabled { opacity: 0.3; border-color: #444; color: #444; }
+
+        .led { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .led-on { background: var(--main); box-shadow: 0 0 10px var(--main); }
     </style>
 </head>
 <body>
 
 <div id="map"></div>
-<div class="pulse-circle" id="pulse"></div>
 
-<div class="hud-top">
-    [ SYSTEM: <span id="sys-mode">IDLE</span> ]<br>
-    [ COORDS: <span id="coord-str">0.0, 0.0</span> ]<br>
-    [ SPECTRUM: <span id="spec-val">PASSIVE</span> ]
+<div class="header">
+    <div><span id="led-gps" class="led"></span> GPS: <span id="gps-stat">OFF</span></div>
+    <div><span id="led-scan" class="led"></span> SCAN: <span id="scan-stat">IDLE</span></div>
 </div>
 
-<div class="signal-log" id="log"></div>
+<div class="log-window" id="log">>> SYSTEM READY. STANDBY FOR COMMAND.</div>
 
-<div class="control-deck">
-    <div class="btn-grid">
-        <button onclick="startSIGINT()" id="main-btn">INITIATE SCAN</button>
-        <button onclick="markStatic()">MARK TARGET</button>
-        <button onclick="toggleVoice()" id="v-btn">VOICE: ON</button>
-        <button onclick="guideBack()">GUIDE BACK</button>
-    </div>
+<div class="control-grid">
+    <button onclick="toggleGPS()" id="btn-gps">ACTIVATE GPS</button>
+    <button onclick="toggleScan()" id="btn-scan" disabled>SCAN DEVICES</button>
+    <button onclick="dropManualMarker()">MARK TARGET</button>
+    <button onclick="toggleGuide()" id="btn-guide">GUIDE BACK</button>
+    <button onclick="clearSystem()" class="danger" style="grid-column: span 2;">PURGE ALL DATA</button>
 </div>
 
 <script>
     const map = new maplibregl.Map({
         container: 'map',
         style: 'https://tiles.openfreemap.org/styles/dark',
-        center: [0, 0], zoom: 2, pitch: 65, bearing: 0
+        center: [0, 0], zoom: 2, pitch: 45
     });
 
     let path = [];
-    let isActive = false;
-    let voice = true;
+    let watchId = null;
+    let scanInterval = null;
+    let isGuiding = false;
 
-    function speak(t) {
-        if(!voice) return;
-        const s = new SpeechSynthesisUtterance(t);
-        s.rate = 1.2; s.pitch = 0.7; window.speechSynthesis.speak(s);
+    function log(msg) {
+        const div = document.getElementById('log');
+        div.innerHTML = `<div>> ${msg}</div>` + div.innerHTML;
     }
 
-    function startSIGINT() {
-        if(isActive) { location.reload(); return; }
-        isActive = true;
-        document.getElementById('sys-mode').innerText = "SIGINT ACTIVE";
-        document.getElementById('main-btn').innerText = "TERMINATE";
-        document.getElementById('pulse').classList.add('anim-pulse');
-        speak("Signal awareness online. Mapping local spectrum.");
-
-        navigator.geolocation.watchPosition((pos) => {
-            const { latitude, longitude, speed } = pos.coords;
-            const pt = [longitude, latitude];
-            path.push(pt);
-            
-            document.getElementById('coord-str').innerText = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-            
-            renderTrail();
-            simulateDetection(pt); // Deep sensor simulation
-            map.flyTo({ center: pt, zoom: 18, bearing: map.getBearing() + 0.5 });
-            
-            if(navigator.vibrate) navigator.vibrate(30);
-        }, null, { enableHighAccuracy: true });
-    }
-
-    function simulateDetection(coords) {
-        // Identifying Car Nodes, Retail IoT, and Power Systems
-        const signals = ["VEHICLE_NODE_5G", "IOT_RETAIL_LINK", "BLE_POWER_PACK", "INFOTAINMENT_SYS"];
-        const found = signals[Math.floor(Math.random() * signals.length)];
+    // 1. MANUAL GPS TOGGLE
+    function toggleGPS() {
+        const btn = document.getElementById('btn-gps');
+        const scanBtn = document.getElementById('btn-scan');
         
-        const logEntry = document.createElement('div');
-        logEntry.innerText = `>> DETECTED: ${found}`;
-        const log = document.getElementById('log');
-        log.prepend(logEntry);
+        if (watchId) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+            btn.innerText = "ACTIVATE GPS";
+            btn.classList.remove('active');
+            scanBtn.disabled = true;
+            document.getElementById('led-gps').classList.remove('led-on');
+            log("GPS TERMINATED.");
+        } else {
+            btn.innerText = "GPS ACTIVE";
+            btn.classList.add('active');
+            scanBtn.disabled = false;
+            document.getElementById('led-gps').classList.add('led-on');
+            log("ESTABLISHING SATELLITE LINK...");
+            
+            watchId = navigator.geolocation.watchPosition(updatePos, null, {enableHighAccuracy:true});
+        }
+    }
 
-        // Map visual for the signal node
-        new maplibregl.Marker({ color: found.includes('VEHICLE') ? '#ff00ff' : '#00d4ff', scale: 0.6 })
-            .setLngLat([coords[0] + (Math.random()-0.5)*0.0008, coords[1] + (Math.random()-0.5)*0.0008])
-            .addTo(map);
+    function updatePos(pos) {
+        const pt = [pos.coords.longitude, pos.coords.latitude];
+        path.push(pt);
+        renderTrail();
+        map.flyTo({ center: pt, zoom: 17 });
+        document.getElementById('gps-stat').innerText = "FIXED";
+    }
+
+    // 2. MANUAL SCAN TOGGLE
+    function toggleScan() {
+        const btn = document.getElementById('btn-scan');
+        if (scanInterval) {
+            clearInterval(scanInterval);
+            scanInterval = null;
+            btn.innerText = "SCAN DEVICES";
+            btn.classList.remove('active');
+            document.getElementById('led-scan').classList.remove('led-on');
+            log("SCANNER DEACTIVATED.");
+        } else {
+            btn.innerText = "SCANNING...";
+            btn.classList.add('active');
+            document.getElementById('led-scan').classList.add('led-on');
+            log("SCANNING FOR MOBILE NODES...");
+            
+            scanInterval = setInterval(() => {
+                const devices = ["iPhone (Personal)", "Android Node", "iPad/Tablet", "Mobile Hotspot", "Smart Watch"];
+                const found = devices[Math.floor(Math.random() * devices.length)];
+                log(`FOUND: ${found}`);
+                
+                // Drop marker at current loc
+                if(path.length > 0) {
+                    new maplibregl.Marker({ color: '#00d4ff', scale: 0.5 })
+                        .setLngLat(path[path.length-1])
+                        .addTo(map);
+                }
+            }, 3000);
+        }
     }
 
     function renderTrail() {
@@ -141,28 +156,27 @@
         }
     }
 
-    function toggleVoice() {
-        voice = !voice;
-        document.getElementById('v-btn').innerText = `VOICE: ${voice ? 'ON' : 'OFF'}`;
+    function dropManualMarker() {
+        if(path.length === 0) return alert("No GPS fix!");
+        new maplibregl.Marker({ color: '#ff3c3c' }).setLngLat(path[path.length-1]).addTo(map);
+        log("MANUAL WAYPOINT STORED.");
     }
 
-    function markStatic() {
-        if(path.length === 0) return;
-        new maplibregl.Marker({ color: '#f00' }).setLngLat(path[path.length-1]).addTo(map);
-        speak("Target point locked.");
-    }
-
-    function guideBack() {
+    function toggleGuide() {
+        const btn = document.getElementById('btn-guide');
         if(path.length < 2) return;
-        map.setPaintProperty('p', 'line-color', '#fff');
-        map.setPaintProperty('p', 'line-dasharray', [2, 1]);
-        speak("Returning to origin. Follow white vector.");
+        isGuiding = !isGuiding;
+        btn.classList.toggle('active');
+        map.setPaintProperty('p', 'line-color', isGuiding ? '#ffffff' : '#00ff41');
+        map.setPaintProperty('p', 'line-dasharray', isGuiding ? [2, 1] : [1, 0]);
+        log(isGuiding ? "RETURN PROTOCOL ENGAGED." : "MAPPING MODE.");
     }
 
-    // SERVICE WORKER & INSTALL POWER
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js');
+    function clearSystem() {
+        if(confirm("WIPE ALL DATA?")) location.reload();
     }
+
+    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js'); }
 </script>
 </body>
 </html>
